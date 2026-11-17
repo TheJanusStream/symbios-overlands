@@ -496,6 +496,39 @@ pub const MAX_LEAN_PERIOD_S: f32 = 10.0;
 /// Widest a wind term may sway a part either way (degrees).
 pub const MAX_WIND_AMPLITUDE_DEG: f32 = 90.0;
 
+// --- Node slide and swell (#1935) -----------------------------------------
+// A slide's distances - a swing's or wobble's amplitude, a wind term's, a
+// bounce's height, a belt's length - are bounded by the tree's own ceiling
+// on a part's size, `MAX_PRIM_DIM_M` in a room and `MAX_AVATAR_PRIM_DIM_M`
+// on an avatar: a part never travels further than a part may be long. Its
+// periods and phases are a spin swing's, `MIN_SWING_PERIOD_S` to
+// `MAX_SWING_PERIOD_S` and `MAX_SWING_PHASE_DEG`, for the same reasons.
+/// Most terms one node's slide sums, as [`MAX_SPIN_TERMS`] bounds a spin's.
+pub const MAX_SLIDE_TERMS: usize = 4;
+/// Fastest a belt may carry a part (m/s), either way: a fast road's
+/// traffic. A belt jumps its part back every length, so the cap is on how
+/// fast the stream reads, not on how far anything goes.
+pub const MAX_BELT_SPEED_M_S: f32 = 50.0;
+/// Most terms one node's swell sums, as [`MAX_SPIN_TERMS`] bounds a spin's.
+pub const MAX_SWELL_TERMS: usize = 4;
+/// Most one swell term's amount may be either way (a share of the authored
+/// size): a clock term alone never shrinks a fully weighted axis past a
+/// tenth of its size. A wind term's amount is scaled by the wind, up to
+/// [`MAX_WIND_SCALE`] times, so one alone can ask for more - and a sum of
+/// terms can too - but the runtime holds the summed amount to
+/// [`MIN_SWELL_FACTOR`] whatever it asks.
+pub const MAX_SWELL_AMOUNT: f32 = 0.9;
+/// The smallest share of its authored size a swell leaves any weighted axis
+/// of a part: the runtime holds the summed amount so none shrinks past it.
+/// Here rather than in the runtime because the avatar scale cap reads it
+/// too, to bound what a swell can do to a body ([`MAX_AVATAR_SCALE_PRODUCT`]).
+pub const MIN_SWELL_FACTOR: f32 = 0.1;
+/// The most a stronger wind scales a wind term by - a spin's sway, a
+/// slide's travel, a swell's amount - against the wind it is authored in.
+/// Here rather than in the runtime because the avatar scale cap reads it
+/// too: a swell's wind term can grow a body this many times its amount.
+pub const MAX_WIND_SCALE: f32 = 2.0;
+
 // --- Node light (#1921) ----------------------------------------------------
 /// Shortest reach a light may have (m): a pilot lamp's glow on what it is
 /// set into.

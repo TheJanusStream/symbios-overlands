@@ -125,6 +125,8 @@ impl Emitter {
             children: Vec::new(),
             audio: SovereignAudioConfig::None,
             spin: None,
+            slide: None,
+            swell: None,
             light: None,
         }
     }

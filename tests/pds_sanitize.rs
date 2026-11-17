@@ -653,6 +653,8 @@ fn generator_node_transform_rejects_non_finite_fields() {
         children: Vec::new(),
         audio: symbios_overlands::pds::SovereignAudioConfig::None,
         spin: None,
+        slide: None,
+        swell: None,
         light: None,
     };
     // Must not panic.
@@ -1351,4 +1353,93 @@ fn a_spin_with_no_terms_is_written_as_none() {
     assert!(g.spin.is_none());
     let wire = serde_json::to_string(&g).expect("serialise");
     assert!(!wire.contains("spin"), "{wire}");
+}
+
+// ---------------------------------------------------------------------------
+// Node slide and swell (#1935)
+// ---------------------------------------------------------------------------
+
+fn sliding() -> Option<symbios_overlands::pds::Slide> {
+    Some(symbios_overlands::pds::Slide::along(
+        [0.0, 1.0, 0.0],
+        symbios_overlands::pds::SlideTerm::fresh("Swing").expect("offered"),
+    ))
+}
+
+fn swelling() -> Option<symbios_overlands::pds::Swell> {
+    Some(symbios_overlands::pds::Swell::even(
+        symbios_overlands::pds::SwellTerm::fresh("Swing").expect("offered"),
+    ))
+}
+
+/// A slide or a swell would carry a Terrain root's region, its water or its
+/// roads as far as a spin would: both go from those kinds, as a spin does,
+/// and stay on every other.
+#[test]
+fn slide_and_swell_come_off_the_kinds_that_anchor_a_world_and_stay_on_the_rest() {
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    let root = r
+        .generators
+        .get_mut("base_terrain")
+        .expect("a seeded region has a terrain root");
+    root.slide = sliding();
+    root.swell = swelling();
+    let water = root
+        .children
+        .iter_mut()
+        .find(|c| matches!(c.kind, GeneratorKind::Water { .. }))
+        .expect("a seeded region has water");
+    water.slide = sliding();
+    water.swell = swelling();
+    let mut prop = Generator::default_cuboid();
+    prop.slide = sliding();
+    prop.swell = swelling();
+    r.generators.insert("prop".into(), prop);
+    r.sanitize();
+
+    let root = &r.generators["base_terrain"];
+    assert!(root.slide.is_none() && root.swell.is_none());
+    assert!(
+        root.children
+            .iter()
+            .filter(|c| matches!(c.kind, GeneratorKind::Water { .. }))
+            .all(|c| c.slide.is_none() && c.swell.is_none()),
+        "water lies still"
+    );
+    assert_eq!(r.generators["prop"].slide, sliding(), "a part slides");
+    assert_eq!(r.generators["prop"].swell, swelling(), "a part swells");
+}
+
+/// A slide or a swell whose every term was dropped is none, and the record
+/// carries no empty key; a hostile one is clamped in a room as its own
+/// sanitiser clamps it.
+#[test]
+fn a_slide_or_swell_with_no_terms_is_written_as_none() {
+    let mut g = Generator::default_cuboid();
+    g.slide = Some(symbios_overlands::pds::Slide::default());
+    g.swell = Some(symbios_overlands::pds::Swell::default());
+    sanitize_generator(&mut g);
+    assert!(g.slide.is_none() && g.swell.is_none());
+    let wire = serde_json::to_string(&g).expect("serialise");
+    assert!(!wire.contains("slide") && !wire.contains("swell"), "{wire}");
+
+    let mut far = Generator::default_cuboid();
+    far.slide = Some(symbios_overlands::pds::Slide::along(
+        [0.0, 1.0, 0.0],
+        symbios_overlands::pds::SlideTerm::Bounce {
+            height: Fp(1e6),
+            period: Fp(0.0),
+            phase: Fp(0.0),
+        },
+    ));
+    sanitize_generator(&mut far);
+    assert_eq!(
+        far.slide.expect("still a slide").terms,
+        vec![symbios_overlands::pds::SlideTerm::Bounce {
+            height: Fp(limits::MAX_PRIM_DIM_M),
+            period: Fp(limits::MIN_SWING_PERIOD_S),
+            phase: Fp(0.0),
+        }],
+        "a room's ceiling on a part's size"
+    );
 }

@@ -1,12 +1,22 @@
-//! The runtime of a node's spin (#1604): each client turning the parts a
-//! record says turn, for itself, without a byte on the wire.
+//! The runtime of a node's spin (#1604), slide and swell (#1935): each
+//! client turning, moving and breathing the parts a record says do, for
+//! itself, without a byte on the wire.
 //!
-//! The spawner gives every node whose [`Spin`] moves a [`Spinner`], holding
-//! the node's authored local pose and its terms in radians and seconds. Two
-//! systems then run every frame, around transform propagation:
+//! The spawner gives every node whose [`Spin`], [`Slide`] or [`Swell`]
+//! moves a [`Spinner`], holding the node's authored local pose and its
+//! terms in radians, metres and seconds. One component writes all three
+//! channels - the turn into the rotation, the slide into the translation,
+//! the swell into the scale - from one clock and one copy offset, so two
+//! channels of one node keep their phase (a spin's swing and a slide's of
+//! one period peak together) and nothing else fights over the `Transform`.
+//! Two systems then run every frame, around transform propagation:
 //!
 //! - [`animate_spinners`], before it, writes each spinner's `Transform` as
-//!   its authored pose turned about the node's axis by the sum of its terms.
+//!   its authored pose turned about the node's axis by the sum of its turn
+//!   terms, moved along its slide axis - in the node's frame after its
+//!   authored rotation, in metres whatever its own scale (an ancestor's
+//!   scale stretches it, as it does every offset below it) - by the sum of its
+//!   slide terms, and scaled per axis by its swell (see [`SwellTerm`]).
 //!   Clock terms ([`SpinTerm::Constant`], [`SpinTerm::Swing`],
 //!   [`SpinTerm::Wobble`]) are a function of the time - UTC in the game, so
 //!   every client shows a windmill at the same angle and a spinner skipped
@@ -20,7 +30,14 @@
 //!   spinner's world position, and its parent's world rotation, over the
 //!   frame they spanned, and records how the part stands in the world.
 //!   After propagation is the only place that delta is honest for a remote
-//!   peer, whose pose propagates only in `PostUpdate` (#1323).
+//!   peer, whose pose propagates only in `PostUpdate` (#1323). Every part is
+//!   measured as drawn, its own slide included, so a slide and a lean on one
+//!   node move as the same slide on a carrier with the lean below it. There
+//!   is no telling a jump from travel: a belt's jump back reads as one fast
+//!   frame of travel, which a roll, speed or lean term on or under the belt
+//!   part feels - the roll rate cap and the lean's bound only limit how much.
+//!   The slide's and the swell's wind terms read the room's wind as a turn's
+//!   do, and are sampled for it.
 //!
 //! **Selection freezes the world.** While an editor has anything selected
 //! ([`SpinHold`], mirrored from the editors), every spinner stands at its
@@ -34,8 +51,12 @@
 //! has let go of what it held (see `ui::room::mirror_spin_hold`), and then
 //! each spinner takes the pose it was left at as its new authored one, so a
 //! drag that was committed turns from where it was put, even before the
-//! recompile arrives. Settings > Effects intensity Off holds every spinner
-//! the same way.
+//! recompile arrives - its place and size as well as its turn. Settings >
+//! Effects intensity Off holds every spinner the same way, and Reduced moves
+//! every slide and swell half as far ([`REDUCED_MOTION_SHARE`]), as it calms
+//! a light's flicker - except a belt, which runs at half speed over its
+//! whole length, so its jump back stays where the run hides it; a turn keeps
+//! its authored motion at Reduced.
 //!
 //! A spinner that has lost its parent is the gizmo's - it detaches its
 //! target into world space - and is never written.
@@ -47,8 +68,11 @@ use std::f32::consts::{PI, TAU};
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 
+use crate::pds::Generator;
 use crate::pds::sanitize::limits;
+use crate::pds::slide::{Slide, SlideTerm};
 use crate::pds::spin::{Spin, SpinTerm};
+use crate::pds::swell::{Swell, SwellTerm, axis_factors};
 
 /// The span a copy's time offset is drawn from (s): see [`copy_epoch`].
 const COPY_EPOCH_SPAN_S: f64 = 3600.0;
@@ -89,12 +113,15 @@ const LEAN_STEP_S: f32 = 1.0 / 120.0;
 /// default room's, which drifts the clouds at 4 m/s.
 const REFERENCE_WIND_M_S: f32 = 4.0;
 
-/// The most a stronger wind scales a wind term's sway by.
-const MAX_WIND_SCALE: f32 = 2.0;
-
 /// How far a vane hunts either side of downwind in the reference wind
 /// (degrees).
 const VANE_HUNT_DEG: f32 = 5.0;
+
+/// How far a slide moves and a swell breathes at Settings > Effects
+/// intensity Reduced, as a share of what was authored: half, as a light's
+/// flicker is calmed (`world_builder::light`). A belt runs at this share of
+/// its speed instead, its length kept. A turn is left as authored.
+const REDUCED_MOTION_SHARE: f32 = 0.5;
 
 /// Register the spin systems and their resources on `app`, with the clock
 /// its spinners read. The game passes [`SpinClock::utc`]; the headless
@@ -298,6 +325,145 @@ impl Turn {
     }
 }
 
+/// One slide term, in the units the runtime moves by.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Shift {
+    /// Metres either side, cycles per second, starting phase in radians.
+    Swing {
+        amplitude: f32,
+        per_second: f64,
+        phase: f32,
+    },
+    /// Metres either side, cycles per second of its slowest swing.
+    Wobble { amplitude: f32, per_second: f64 },
+    /// Metres along the axis in the reference wind blowing along it.
+    Wind { amplitude: f32 },
+    /// Metres at the top of a hop, hops per second, starting phase in
+    /// radians.
+    Bounce {
+        height: f32,
+        per_second: f64,
+        phase: f32,
+    },
+    /// Metres per second, metres before the jump back and metres along the
+    /// run it starts, in f64: at UTC's ~1.8e9 s an f32 product has lost
+    /// every digit that places the part.
+    Belt { speed: f64, length: f64, start: f64 },
+}
+
+impl Shift {
+    fn from_term(term: &SlideTerm) -> Option<Self> {
+        if !term.moves() {
+            return None;
+        }
+        Some(match term {
+            SlideTerm::Swing {
+                amplitude,
+                period,
+                phase,
+            } => Self::Swing {
+                amplitude: amplitude.0,
+                per_second: 1.0 / period.0 as f64,
+                phase: phase.0.to_radians(),
+            },
+            SlideTerm::Wobble { amplitude, period } => Self::Wobble {
+                amplitude: amplitude.0,
+                per_second: 1.0 / period.0 as f64,
+            },
+            SlideTerm::Wind { amplitude } => Self::Wind {
+                amplitude: amplitude.0,
+            },
+            SlideTerm::Bounce {
+                height,
+                period,
+                phase,
+            } => Self::Bounce {
+                height: height.0,
+                per_second: 1.0 / period.0 as f64,
+                phase: phase.0.to_radians(),
+            },
+            SlideTerm::Belt {
+                speed,
+                length,
+                start,
+            } => Self::Belt {
+                speed: speed.0 as f64,
+                length: length.0 as f64,
+                start: start.0 as f64,
+            },
+            SlideTerm::Unknown => return None,
+        })
+    }
+}
+
+/// One swell term, in the units the runtime breathes by: amounts are shares
+/// of the authored size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Breath {
+    /// The amount either side, cycles per second, starting phase in radians.
+    Swing {
+        amount: f32,
+        per_second: f64,
+        phase: f32,
+    },
+    /// The amount either side, cycles per second of its slowest swing.
+    Wobble { amount: f32, per_second: f64 },
+    /// The amount at the top of a gust in the reference wind.
+    Wind { amount: f32 },
+}
+
+impl Breath {
+    fn from_term(term: &SwellTerm) -> Option<Self> {
+        if !term.moves() {
+            return None;
+        }
+        Some(match term {
+            SwellTerm::Swing {
+                amount,
+                period,
+                phase,
+            } => Self::Swing {
+                amount: amount.0,
+                per_second: 1.0 / period.0 as f64,
+                phase: phase.0.to_radians(),
+            },
+            SwellTerm::Wobble { amount, period } => Self::Wobble {
+                amount: amount.0,
+                per_second: 1.0 / period.0 as f64,
+            },
+            SwellTerm::Wind { amount } => Self::Wind { amount: amount.0 },
+            SwellTerm::Unknown => return None,
+        })
+    }
+}
+
+/// A swing's value at `t` (s): `amplitude` either side, `per_second` cycles
+/// a second, starting `phase` radians in - the one formula a turn's, a
+/// slide's and a swell's swing share, so channels of one node keep phase.
+fn swing(amplitude: f32, per_second: f64, phase: f32, t: f64) -> f64 {
+    let cycle = (t * per_second).rem_euclid(1.0);
+    amplitude as f64 * (std::f64::consts::TAU * cycle + phase as f64).sin()
+}
+
+/// A hop's height at `t` (s): `height` at the top, back to nothing once a
+/// hop, `per_second` hops a second, starting `phase` radians in.
+fn bounce(height: f32, per_second: f64, phase: f32, t: f64) -> f64 {
+    let cycle = (t * per_second).rem_euclid(1.0);
+    height as f64 * (std::f64::consts::PI * cycle + phase as f64).sin().abs()
+}
+
+/// A belt's offset at `t` (s): `speed x t + start` wrapped into
+/// `[0, length)` - held under `length` after the f32 cast too, whose
+/// rounding could carry a value a hair short of it onto it.
+fn belt(speed: f64, length: f64, start: f64, t: f64) -> f32 {
+    let wrapped = (speed * t + start).rem_euclid(length) as f32;
+    if wrapped < length as f32 {
+        wrapped
+    } else {
+        0.0
+    }
+}
+
 /// Three incommensurate swings summed, scaled to stay within one either way
 /// (their amplitudes sum to 1.95): a wander that never settles into a beat.
 /// The two faster swings run at the golden and the silver ratio of the
@@ -338,7 +504,7 @@ impl RoomWind {
 
     /// How hard it blows, against the speed a wind term is authored at.
     fn scale(&self) -> f32 {
-        (self.speed / REFERENCE_WIND_M_S).min(MAX_WIND_SCALE)
+        (self.speed / REFERENCE_WIND_M_S).min(limits::MAX_WIND_SCALE)
     }
 
     /// A bend at `at` and `now` with the foliage's pace, `speed x 0.35`
@@ -382,15 +548,26 @@ struct Motion {
     forward_speed: f32,
 }
 
-/// A node that turns (#1604): its authored pose, its axis and terms, and
-/// what its motion terms have accumulated.
+/// A node that turns (#1604), slides or swells (#1935): its authored pose,
+/// each channel's axis and terms, and what its motion terms have
+/// accumulated. A channel without terms leaves its part of the pose as
+/// authored, to the bit.
 #[derive(Component, Clone, Debug)]
 pub struct Spinner {
-    /// The node's authored local pose, which every turn composes onto.
+    /// The node's authored local pose, which every turn, slide and swell
+    /// composes onto.
     base: Transform,
-    /// Unit axis in the node's frame.
+    /// Unit turn axis in the node's frame.
     axis: Vec3,
     turns: Vec<Turn>,
+    /// Unit slide axis in the node's frame, after its authored rotation.
+    slide_axis: Vec3,
+    shifts: Vec<Shift>,
+    /// Each local axis's share of the swell's amount, in `[0, 1]`.
+    weights: Vec3,
+    /// Whether the swell keeps the part's volume (see [`SwellTerm`]).
+    keep_volume: bool,
+    breaths: Vec<Breath>,
     /// This copy's clock offset (s), see [`copy_epoch`].
     epoch: f64,
     /// Whether any term reads the part's motion.
@@ -406,20 +583,78 @@ pub struct Spinner {
 }
 
 impl Spinner {
-    /// The spinner for a node at `base` with `spin`, or `None` when the spin
-    /// turns nothing. `epoch` is the copy's clock offset.
+    /// The spinner for `node` spawned at `base`, or `None` when nothing
+    /// about it moves: its spin, slide and swell as the node may carry them
+    /// ([`Generator::moving_spin`] and its siblings). `epoch` is the copy's
+    /// clock offset.
+    pub(crate) fn of_node(node: &Generator, base: Transform, epoch: f64) -> Option<Self> {
+        Self::build(
+            node.moving_spin(),
+            node.moving_slide(),
+            node.moving_swell(),
+            base,
+            epoch,
+        )
+    }
+
+    /// The spinner for a node at `base` with `spin` alone, or `None` when
+    /// the spin turns nothing.
+    #[cfg(test)]
     pub(crate) fn new(spin: &Spin, base: Transform, epoch: f64) -> Option<Self> {
-        let axis = Vec3::from_array(spin.axis.0).try_normalize()?;
-        let turns: Vec<Turn> = spin.terms.iter().filter_map(Turn::from_term).collect();
-        if turns.is_empty() {
+        Self::build(Some(spin), None, None, base, epoch)
+    }
+
+    fn build(
+        spin: Option<&Spin>,
+        slide: Option<&Slide>,
+        swell: Option<&Swell>,
+        base: Transform,
+        epoch: f64,
+    ) -> Option<Self> {
+        // Each channel stands alone: a zero axis stills its own channel and
+        // no other.
+        let spin = spin.and_then(|spin| {
+            let axis = Vec3::from_array(spin.axis.0).try_normalize()?;
+            Some((spin, axis))
+        });
+        let slide = slide.and_then(|slide| {
+            let axis = Vec3::from_array(slide.axis.0).try_normalize()?;
+            Some((slide, axis))
+        });
+        let swell = swell.filter(|swell| swell.moves());
+        let turns: Vec<Turn> = spin.map_or_else(Vec::new, |(spin, _)| {
+            spin.terms.iter().filter_map(Turn::from_term).collect()
+        });
+        let shifts: Vec<Shift> = slide.map_or_else(Vec::new, |(slide, _)| {
+            slide.terms.iter().filter_map(Shift::from_term).collect()
+        });
+        let breaths: Vec<Breath> = swell.map_or_else(Vec::new, |swell| {
+            swell.terms.iter().filter_map(Breath::from_term).collect()
+        });
+        if turns.is_empty() && shifts.is_empty() && breaths.is_empty() {
             return None;
         }
-        let follows_motion = spin.terms.iter().any(|t| t.moves() && t.follows_motion());
-        let reads_wind = spin.terms.iter().any(|t| t.moves() && t.reads_wind());
+        let spin_terms = || spin.into_iter().flat_map(|(spin, _)| &spin.terms);
+        let follows_motion = spin_terms().any(|t| t.moves() && t.follows_motion());
+        let reads_wind = spin_terms().any(|t| t.moves() && t.reads_wind())
+            || slide
+                .into_iter()
+                .flat_map(|(slide, _)| &slide.terms)
+                .any(|t| t.moves() && t.reads_wind())
+            || swell
+                .into_iter()
+                .flat_map(|swell| &swell.terms)
+                .any(|t| t.moves() && t.reads_wind());
+        let weights = swell.map_or(Vec3::ONE, |swell| Vec3::from_array(swell.held_weights()));
         Some(Self {
             base,
-            axis,
+            axis: spin.map_or(Vec3::Y, |(_, axis)| axis),
             turns,
+            slide_axis: slide.map_or(Vec3::Y, |(_, axis)| axis),
+            shifts,
+            weights,
+            keep_volume: swell.is_some_and(|swell| swell.keep_volume),
+            breaths,
             epoch,
             follows_motion,
             reads_wind,
@@ -450,11 +685,7 @@ impl Spinner {
                     amplitude,
                     per_second,
                     phase,
-                } => {
-                    let cycle = (t * per_second).rem_euclid(1.0);
-                    angle +=
-                        amplitude as f64 * (std::f64::consts::TAU * cycle + phase as f64).sin();
-                }
+                } => angle += swing(amplitude, per_second, phase, t),
                 Turn::Wobble {
                     amplitude,
                     per_second,
@@ -470,6 +701,104 @@ impl Spinner {
             }
         }
         angle as f32
+    }
+
+    /// The slide offset (m) and the swell amount the clock terms give at
+    /// `now`, on the clock the turn reads, calmed by `calm` (one as
+    /// authored, [`REDUCED_MOTION_SHARE`] at Effects Reduced).
+    ///
+    /// Calmed term by term, not as a sum: a swing, a wobble and a bounce
+    /// move `calm` as far at the same phase, but a belt runs `calm` as fast
+    /// over its whole length. Calming a belt's offset would shrink its run
+    /// and its crates' spacing, and bring its jump back out of the machine
+    /// that hides it into the middle of the run.
+    fn clock_shift(&self, now: f64, calm: f32) -> (f32, f32) {
+        let t = now + self.epoch;
+        let mut offset = 0.0_f64;
+        for shift in &self.shifts {
+            match *shift {
+                Shift::Swing {
+                    amplitude,
+                    per_second,
+                    phase,
+                } => offset += swing(amplitude * calm, per_second, phase, t),
+                Shift::Wobble {
+                    amplitude,
+                    per_second,
+                } => offset += (amplitude * calm * wobble(t * per_second)) as f64,
+                Shift::Bounce {
+                    height,
+                    per_second,
+                    phase,
+                } => offset += bounce(height * calm, per_second, phase, t),
+                Shift::Belt {
+                    speed,
+                    length,
+                    start,
+                } => offset += belt(speed * calm as f64, length, start, t) as f64,
+                Shift::Wind { .. } => {}
+            }
+        }
+        let mut amount = 0.0_f64;
+        for breath in &self.breaths {
+            match *breath {
+                Breath::Swing {
+                    amount: reach,
+                    per_second,
+                    phase,
+                } => amount += swing(reach * calm, per_second, phase, t),
+                Breath::Wobble {
+                    amount: reach,
+                    per_second,
+                } => amount += (reach * calm * wobble(t * per_second)) as f64,
+                Breath::Wind { .. } => {}
+            }
+        }
+        (offset as f32, amount as f32)
+    }
+
+    /// The slide offset (m) and the swell amount the wind terms give at
+    /// `now`, for a part standing at `at` in `wind`: the gust a turn's wind
+    /// term sways by, so a part that sways and slides in the wind is pushed
+    /// by one gust. Each term is calmed by `calm`, as in
+    /// [`Self::clock_shift`].
+    fn wind_shift(&self, now: f64, wind: RoomWind, at: Vec3, calm: f32) -> (f32, f32) {
+        if wind.downwind == Vec3::ZERO {
+            return (0.0, 0.0);
+        }
+        let t = now + self.epoch;
+        let gust = wind.scale() * (0.6 + 0.4 * wind.bend(t, at, 0.0));
+        // How squarely the wind blows along the slide axis, downwind
+        // positive.
+        let along = wind.downwind.dot(self.motion.frame * self.slide_axis);
+        let offset = self
+            .shifts
+            .iter()
+            .map(|shift| match *shift {
+                Shift::Wind { amplitude } => amplitude * calm * gust * along,
+                _ => 0.0,
+            })
+            .sum();
+        let amount = self
+            .breaths
+            .iter()
+            .map(|breath| match *breath {
+                Breath::Wind { amount } => amount * calm * gust,
+                _ => 0.0,
+            })
+            .sum();
+        (offset, amount)
+    }
+
+    /// Each local axis's factor on the authored scale at swell `amount`, by
+    /// [`axis_factors`] - the formula the avatar scale cap bounds a swell
+    /// by ([`Swell::peak_factor`]), so what is drawn is what was bounded.
+    fn swell_factors(&self, amount: f32) -> Vec3 {
+        Vec3::from_array(axis_factors(
+            self.weights.to_array(),
+            self.keep_volume,
+            amount,
+        ))
     }
 
     /// The angle the wind terms give at `now`, for a part standing at `at`
@@ -634,11 +963,28 @@ impl Spinner {
         }
     }
 
-    /// The node's pose turned by `angle`.
-    fn posed(&self, angle: f32) -> Transform {
+    /// The node's pose turned by `angle`, slid `offset` metres along its
+    /// slide axis and swollen by `amount`. A channel without terms keeps the
+    /// authored value untouched, so a part that only turns keeps its place
+    /// and size to the bit.
+    fn posed(&self, angle: f32, offset: f32, amount: f32) -> Transform {
+        let base = self.base;
         Transform {
-            rotation: self.base.rotation * Quat::from_axis_angle(self.axis, angle),
-            ..self.base
+            rotation: if self.turns.is_empty() {
+                base.rotation
+            } else {
+                base.rotation * Quat::from_axis_angle(self.axis, angle)
+            },
+            translation: if self.shifts.is_empty() {
+                base.translation
+            } else {
+                base.translation + base.rotation * (self.slide_axis * offset)
+            },
+            scale: if self.breaths.is_empty() {
+                base.scale
+            } else {
+                base.scale * self.swell_factors(amount)
+            },
         }
     }
 }
@@ -667,7 +1013,14 @@ pub(crate) fn animate_spinners(
     mut settled: ResMut<SpinSettled>,
     mut frozen: Local<bool>,
 ) {
-    let held = hold.editing || settings.is_some_and(|s| !s.effects_intensity.plays());
+    let effects = settings.map(|s| s.effects_intensity);
+    let held = hold.editing || effects.is_some_and(|e| !e.plays());
+    // A slide and a swell are calmed at Reduced; a turn is not.
+    let calm = if effects == Some(crate::state::EffectsIntensity::Reduced) {
+        REDUCED_MOTION_SHARE
+    } else {
+        1.0
+    };
     if held {
         if !*frozen {
             for (mut spinner, mut tf, ..) in &mut spinners {
@@ -717,13 +1070,19 @@ pub(crate) fn animate_spinners(
         }
         let mut angle =
             spinner.clock_angle(now) + spinner.rolled + spinner.steered + spinner.lean_angle();
+        let (mut offset, mut amount) = spinner.clock_shift(now, calm);
         // Not before the part's first sample: until then its world frame is
         // unknown, and a vane drawn against an unturned frame would face the
         // wrong way for a frame and snap. The authored pose stands in.
         if spinner.reads_wind && spinner.motion.last.is_some() {
             angle += spinner.wind_angle(now, wind, at);
+            let (blown, filled) = spinner.wind_shift(now, wind, at, calm);
+            offset += blown;
+            amount += filled;
         }
-        *tf = spinner.posed(angle);
+        // Written only when it moved: a change tick is a promise that
+        // something changed (a still belt, a held clock).
+        tf.set_if_neq(spinner.posed(angle, offset, amount));
     }
 }
 
@@ -743,10 +1102,12 @@ pub(crate) fn sample_spinner_motion(
         if !spinner.follows_motion && !spinner.reads_wind {
             continue;
         }
-        let at = global.translation();
         let parent = frames
             .get(child_of.parent())
             .map_or(Quat::IDENTITY, GlobalTransform::rotation);
+        // Where the part is drawn, its own slide included: a slide on the
+        // node itself and one on a carrier above it are the same motion.
+        let at = global.translation();
         let frame = parent * spinner.base.rotation;
         let axis_world = (frame * spinner.axis).normalize_or_zero();
         let motion = &mut spinner.motion;
@@ -998,7 +1359,7 @@ mod tests {
         };
         let s =
             Spinner::new(&Spin::about([0.0, 0.0, 1.0], constant(10.0)), base, 0.0).expect("moves");
-        let posed = s.posed(1.2);
+        let posed = s.posed(1.2, 0.0, 0.0);
         assert_eq!(posed.translation, base.translation);
         assert_eq!(posed.scale, base.scale);
         // The axis is in the node's frame after its own rotation: the node's
@@ -1006,7 +1367,7 @@ mod tests {
         let axis_out = posed.rotation * Vec3::Z;
         let axis_in = base.rotation * Vec3::Z;
         assert!(axis_out.distance(axis_in) < 1e-5);
-        assert!(s.posed(0.0).rotation.angle_between(base.rotation) < 1e-6);
+        assert!(s.posed(0.0, 0.0, 0.0).rotation.angle_between(base.rotation) < 1e-6);
     }
 
     /// An app turning spinners through the real schedule: transform
@@ -1461,5 +1822,671 @@ mod tests {
         assert_ne!(a, copy_epoch(3, Vec3::new(10.5, 0.0, 20.0)));
         assert_ne!(a, copy_epoch(4, Vec3::new(10.0, 0.0, 20.0)));
         assert!((0.0..COPY_EPOCH_SPAN_S).contains(&a));
+    }
+
+    // --- Slide and swell (#1935) -------------------------------------------
+
+    fn slider(axis: [f32; 3], terms: Vec<SlideTerm>) -> Spinner {
+        let slide = Slide {
+            axis: Fp3(axis),
+            terms,
+        };
+        Spinner::build(None, Some(&slide), None, Transform::IDENTITY, 0.0)
+            .expect("a slide that moves")
+    }
+
+    fn sweller(weights: [f32; 3], keep_volume: bool, terms: Vec<SwellTerm>) -> Spinner {
+        let swell = Swell {
+            weights: Fp3(weights),
+            keep_volume,
+            terms,
+        };
+        Spinner::build(None, None, Some(&swell), Transform::IDENTITY, 0.0)
+            .expect("a swell that moves")
+    }
+
+    fn slide_swing(amplitude: f32, period: f32, phase: f32) -> SlideTerm {
+        SlideTerm::Swing {
+            amplitude: Fp(amplitude),
+            period: Fp(period),
+            phase: Fp(phase),
+        }
+    }
+
+    fn swell_swing(amount: f32, period: f32) -> SwellTerm {
+        SwellTerm::Swing {
+            amount: Fp(amount),
+            period: Fp(period),
+            phase: Fp::ZERO,
+        }
+    }
+
+    #[test]
+    fn a_slide_or_swell_alone_gets_a_spinner_and_a_still_one_none() {
+        let build = |slide: Option<&Slide>, swell: Option<&Swell>| {
+            Spinner::build(None, slide, swell, Transform::IDENTITY, 0.0)
+        };
+        let bob = Slide::along([0.0, 1.0, 0.0], slide_swing(0.3, 4.0, 0.0));
+        assert!(build(Some(&bob), None).is_some());
+        assert!(
+            build(
+                Some(&Slide::along([0.0; 3], slide_swing(0.3, 4.0, 0.0))),
+                None
+            )
+            .is_none()
+        );
+        assert!(
+            build(
+                Some(&Slide::along([0.0, 1.0, 0.0], SlideTerm::Unknown)),
+                None
+            )
+            .is_none()
+        );
+        assert!(build(None, Some(&Swell::even(swell_swing(0.1, 2.0)))).is_some());
+        let even_kept = Swell {
+            keep_volume: true,
+            ..Swell::even(swell_swing(0.1, 2.0))
+        };
+        assert!(
+            build(None, Some(&even_kept)).is_none(),
+            "an even swell that keeps its volume changes nothing"
+        );
+        // Each channel stands alone: a zero spin axis stills the turn, not
+        // the slide.
+        let still_spin = Spin::about([0.0; 3], constant(30.0));
+        let both = Spinner::build(
+            Some(&still_spin),
+            Some(&bob),
+            None,
+            Transform::IDENTITY,
+            0.0,
+        )
+        .expect("the slide still moves");
+        assert!(both.turns.is_empty() && !both.shifts.is_empty());
+    }
+
+    #[test]
+    fn a_slide_swing_is_at_its_amplitude_a_quarter_period_in() {
+        let buoy = slider([0.0, 1.0, 0.0], vec![slide_swing(0.3, 4.0, 0.0)]);
+        assert!(buoy.clock_shift(0.0, 1.0).0.abs() < 1e-6);
+        assert!((buoy.clock_shift(1.0, 1.0).0 - 0.3).abs() < 1e-5);
+        assert!(buoy.clock_shift(2.0, 1.0).0.abs() < 1e-5);
+        assert!((buoy.clock_shift(3.0, 1.0).0 + 0.3).abs() < 1e-5);
+        // A phase of 90 degrees starts at the top.
+        let late = slider([0.0, 1.0, 0.0], vec![slide_swing(0.3, 4.0, 90.0)]);
+        assert!((late.clock_shift(0.0, 1.0).0 - 0.3).abs() < 1e-5);
+        // The wall clock's seconds keep their precision.
+        let whole = (1.8e9_f64 / 4.0).floor() * 4.0;
+        assert!((buoy.clock_shift(whole + 1.0, 1.0).0 - 0.3).abs() < 1e-4);
+        let posed = buoy.posed(0.0, buoy.clock_shift(1.0, 1.0).0, 0.0);
+        assert!((posed.translation - Vec3::new(0.0, 0.3, 0.0)).length() < 1e-5);
+        assert_eq!(posed.rotation, Quat::IDENTITY);
+        assert_eq!(posed.scale, Vec3::ONE);
+    }
+
+    #[test]
+    fn a_slide_wobble_wanders_within_its_amplitude() {
+        let drone = slider(
+            [1.0, 0.0, 0.0],
+            vec![SlideTerm::Wobble {
+                amplitude: Fp(0.2),
+                period: Fp(3.0),
+            }],
+        );
+        let mut widest = 0.0_f32;
+        for k in 0..2000 {
+            let t = 1.8e9 + k as f64 * 0.05;
+            let offset = drone.clock_shift(t, 1.0).0;
+            assert!(offset.abs() <= 0.2 + 1e-6, "{offset}");
+            widest = widest.max(offset.abs());
+        }
+        assert!(widest > 0.1, "it does wander: {widest}");
+    }
+
+    #[test]
+    fn a_bounce_never_goes_under_and_lands_once_a_period() {
+        let ball = slider(
+            [0.0, 1.0, 0.0],
+            vec![SlideTerm::Bounce {
+                height: Fp(0.5),
+                period: Fp(1.0),
+                phase: Fp::ZERO,
+            }],
+        );
+        for k in 0..400 {
+            let t = k as f64 / 100.0;
+            let h = ball.clock_shift(t, 1.0).0;
+            assert!((0.0..=0.5 + 1e-6).contains(&h), "t {t}: {h}");
+        }
+        for landing in [0.0, 1.0, 2.0, 7.0, 1.8e9] {
+            assert!(
+                ball.clock_shift(landing, 1.0).0.abs() < 1e-4,
+                "lands at {landing}"
+            );
+            assert!(
+                (ball.clock_shift(landing + 0.5, 1.0).0 - 0.5).abs() < 1e-4,
+                "tops out half a period later"
+            );
+        }
+    }
+
+    #[test]
+    fn a_belt_runs_within_its_length_and_wraps() {
+        let belt = |speed: f32| {
+            slider(
+                [0.0, 0.0, 1.0],
+                vec![SlideTerm::Belt {
+                    speed: Fp(speed),
+                    length: Fp(2.0),
+                    start: Fp::ZERO,
+                }],
+            )
+        };
+        let forward = belt(0.5);
+        let back = belt(-0.5);
+        for k in 0..2000 {
+            let t = 1.8e9 + k as f64 * 0.037;
+            for b in [&forward, &back] {
+                let offset = b.clock_shift(t, 1.0).0;
+                assert!((0.0..2.0).contains(&offset), "t {t}: {offset}");
+            }
+        }
+        assert!((forward.clock_shift(1.0, 1.0).0 - 0.5).abs() < 1e-5);
+        assert!((forward.clock_shift(3.9, 1.0).0 - 1.95).abs() < 1e-5);
+        assert!(
+            (forward.clock_shift(4.1, 1.0).0 - 0.05).abs() < 1e-5,
+            "past its length it starts again"
+        );
+        assert!(
+            (back.clock_shift(1.0, 1.0).0 - 1.5).abs() < 1e-5,
+            "running back, it wraps from the far end"
+        );
+    }
+
+    /// Four crates at one place, their starts a quarter of the run apart:
+    /// at every moment they stand a quarter of the run apart, one stream
+    /// filling the run however late the clock.
+    #[test]
+    fn a_belts_starts_keep_its_crates_evenly_spaced() {
+        let crates: Vec<Spinner> = (0..4)
+            .map(|k| {
+                slider(
+                    [1.0, 0.0, 0.0],
+                    vec![SlideTerm::Belt {
+                        speed: Fp(0.5),
+                        length: Fp(4.0),
+                        start: Fp(k as f32),
+                    }],
+                )
+            })
+            .collect();
+        for k in 0..500 {
+            let t = 1.8e9 + k as f64 * 0.173;
+            let mut at: Vec<f32> = crates.iter().map(|c| c.clock_shift(t, 1.0).0).collect();
+            at.sort_by(f32::total_cmp);
+            for pair in at.windows(2) {
+                assert!((pair[1] - pair[0] - 1.0).abs() < 1e-3, "t {t}: {at:?}");
+            }
+            assert!(at[0] < 1.0 + 1e-3 && at[3] < 4.0, "t {t}: {at:?}");
+        }
+    }
+
+    /// The axis is in the node's frame after its authored rotation, as a
+    /// spin's is, and the offset is in metres whatever the node's own scale.
+    #[test]
+    fn a_slide_runs_along_its_turned_axis_in_metres() {
+        let base = Transform {
+            translation: Vec3::new(1.0, 2.0, 3.0),
+            rotation: Quat::from_rotation_z(FRAC_PI_2),
+            scale: Vec3::splat(4.0),
+        };
+        let slide = Slide::along([0.0, 1.0, 0.0], slide_swing(0.3, 4.0, 0.0));
+        let s = Spinner::build(None, Some(&slide), None, base, 0.0).expect("moves");
+        let posed = s.posed(0.0, 0.5, 0.0);
+        // +Y turned a quarter round about Z is -X.
+        let moved = posed.translation - base.translation;
+        assert!(
+            (moved - Vec3::new(-0.5, 0.0, 0.0)).length() < 1e-5,
+            "{moved}"
+        );
+        assert_eq!(posed.rotation, base.rotation);
+        assert_eq!(posed.scale, base.scale);
+    }
+
+    #[test]
+    fn a_swell_grows_each_axis_by_its_weight() {
+        let cap = sweller([1.0, 0.5, 0.0], false, vec![swell_swing(0.2, 2.0)]);
+        let base = Transform::from_scale(Vec3::new(2.0, 2.0, 2.0));
+        let cap = Spinner { base, ..cap };
+        let posed = cap.posed(0.0, 0.0, 0.2);
+        assert!((posed.scale - Vec3::new(2.4, 2.2, 2.0)).length() < 1e-5);
+        assert_eq!(posed.translation, base.translation);
+        assert_eq!(posed.rotation, base.rotation);
+        // The swing's amount a quarter period in.
+        assert!((cap.clock_shift(0.5, 1.0).1 - 0.2).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_swell_that_keeps_its_volume_squashes_as_it_stretches() {
+        let blob = sweller([0.0, 1.0, 0.0], true, vec![swell_swing(0.5, 2.0)]);
+        for amount in [-2.0, -0.9, -0.3, 0.0, 0.4, 0.9, 3.6] {
+            let f = blob.swell_factors(amount);
+            assert!(
+                (f.x * f.y * f.z - 1.0).abs() < 1e-5,
+                "{amount}: {f} keeps no volume"
+            );
+            assert!(
+                f.min_element() >= limits::MIN_SWELL_FACTOR - 1e-6,
+                "{amount}: {f}"
+            );
+        }
+        let tall = blob.swell_factors(0.5);
+        assert!(tall.y > 1.0 && tall.x < 1.0 && (tall.x - tall.z).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_summed_swell_never_shrinks_an_axis_past_a_tenth() {
+        // Four of the deepest terms summed, at the bottom of each swing.
+        let sink = sweller(
+            [1.0, 0.25, 0.5],
+            false,
+            vec![swell_swing(limits::MAX_SWELL_AMOUNT, 2.0); 4],
+        );
+        let amount = sink.clock_shift(1.5, 1.0).1;
+        assert!(
+            (amount + 4.0 * limits::MAX_SWELL_AMOUNT).abs() < 1e-4,
+            "{amount}"
+        );
+        let f = sink.swell_factors(amount);
+        assert!(f.min_element() >= limits::MIN_SWELL_FACTOR - 1e-6, "{f}");
+        assert!(
+            (f.x - limits::MIN_SWELL_FACTOR).abs() < 1e-5,
+            "the widest weight sets the floor: {f}"
+        );
+        assert!(f.y > f.x && f.z > f.x);
+        assert_eq!(sink.swell_factors(f32::NAN), Vec3::ONE);
+    }
+
+    /// One clock and one copy offset for every channel: a turn's swing, a
+    /// slide's and a swell's of one period and phase peak together.
+    #[test]
+    fn a_turn_slide_and_swell_of_one_period_keep_phase() {
+        let spin = Spin::about(
+            [1.0, 0.0, 0.0],
+            SpinTerm::Swing {
+                amplitude: Fp(30.0),
+                period: Fp(3.0),
+                phase: Fp(40.0),
+            },
+        );
+        let slide = Slide::along([0.0, 1.0, 0.0], slide_swing(0.3, 3.0, 40.0));
+        let swell = Swell::even(SwellTerm::Swing {
+            amount: Fp(0.2),
+            period: Fp(3.0),
+            phase: Fp(40.0),
+        });
+        let s = Spinner::build(
+            Some(&spin),
+            Some(&slide),
+            Some(&swell),
+            Transform::IDENTITY,
+            123.4,
+        )
+        .expect("moves");
+        for k in 0..300 {
+            let now = 1.8e9 + k as f64 * 0.07;
+            let share = s.clock_angle(now) / 30f32.to_radians();
+            let (offset, amount) = s.clock_shift(now, 1.0);
+            assert!((offset / 0.3 - share).abs() < 1e-3, "{now}");
+            assert!((amount / 0.2 - share).abs() < 1e-3, "{now}");
+        }
+    }
+
+    /// Downwind along the slide axis moves the part forward, against it
+    /// back, across it not at all; a swell fills whichever way it blows.
+    #[test]
+    fn the_wind_slides_a_part_downwind_along_its_axis_and_fills_a_swell() {
+        let mut flag = slider(
+            [1.0, 0.0, 0.0],
+            vec![SlideTerm::Wind { amplitude: Fp(0.2) }],
+        );
+        flag.motion.frame = Quat::IDENTITY;
+        for t in [0.0, 1.3, 7.7, 1.8e9] {
+            let along = flag.wind_shift(t, wind(Vec3::X, 4.0), Vec3::ZERO, 1.0).0;
+            assert!(along > 0.0 && along <= 0.2 + 1e-6, "t {t}: {along}");
+            let against = flag
+                .wind_shift(t, wind(Vec3::NEG_X, 4.0), Vec3::ZERO, 1.0)
+                .0;
+            assert!(against < 0.0, "t {t}: {against}");
+        }
+        assert_eq!(
+            flag.wind_shift(3.0, wind(Vec3::Z, 4.0), Vec3::ZERO, 1.0).0,
+            0.0
+        );
+        assert_eq!(
+            flag.wind_shift(3.0, wind(Vec3::ZERO, 0.0), Vec3::ZERO, 1.0)
+                .0,
+            0.0
+        );
+        // Its parent turned a quarter round carries the axis with it.
+        flag.motion.frame = Quat::from_rotation_y(FRAC_PI_2);
+        assert!(
+            flag.wind_shift(3.0, wind(Vec3::X, 4.0), Vec3::ZERO, 1.0)
+                .0
+                .abs()
+                < 1e-6
+        );
+
+        let mut sail = sweller(
+            [1.0, 1.0, 1.0],
+            false,
+            vec![SwellTerm::Wind { amount: Fp(0.1) }],
+        );
+        sail.motion.frame = Quat::IDENTITY;
+        for dir in [Vec3::X, Vec3::NEG_Z] {
+            let filled = sail.wind_shift(2.0, wind(dir, 4.0), Vec3::ZERO, 1.0).1;
+            assert!(filled > 0.0 && filled <= 0.1 + 1e-6, "{filled}");
+        }
+    }
+
+    /// One motion built two ways moves alike: a node that slides and leans
+    /// leans exactly as a hub with the slide does the lean on its child, and
+    /// the same for a slide and a roll - every part is measured as drawn,
+    /// its own slide included.
+    #[test]
+    fn a_slide_on_the_node_moves_its_motion_terms_as_one_on_its_carrier() {
+        let sliding = || Slide::along([0.0, 0.0, 1.0], slide_swing(2.0, 0.5, 0.0));
+        let lean = || {
+            Spin::about(
+                [1.0, 0.0, 0.0],
+                SpinTerm::Lean {
+                    gain: Fp(30.0),
+                    period: Fp(0.5),
+                },
+            )
+        };
+        // A wheel about X rolls with travel along Z.
+        let roll = || Spin::about([1.0, 0.0, 0.0], SpinTerm::Roll { radius: Fp(0.4) });
+        let spawn = |app: &mut App, node: Generator, parent: Entity| {
+            let spinner = Spinner::of_node(&node, Transform::IDENTITY, 0.0).expect("moves");
+            app.world_mut()
+                .spawn((
+                    spinner,
+                    Transform::IDENTITY,
+                    InheritedVisibility::VISIBLE,
+                    ChildOf(parent),
+                ))
+                .id()
+        };
+        for (name, spin) in [("lean", lean()), ("roll", roll())] {
+            let mut app = spin_app();
+            let ground = app.world_mut().spawn(Transform::IDENTITY).id();
+            // One node: the slide and the turn together.
+            let mut one = Generator::default_cuboid();
+            one.slide = Some(sliding());
+            one.spin = Some(spin.clone());
+            let together = spawn(&mut app, one, ground);
+            // Two: the slide on a hub, the turn on its child.
+            let mut hub = Generator::default_cuboid();
+            hub.slide = Some(sliding());
+            let hub = spawn(&mut app, hub, ground);
+            let mut child = Generator::default_cuboid();
+            child.spin = Some(spin);
+            let nested = spawn(&mut app, child, hub);
+
+            let mut turned = 0.0_f32;
+            for frame in 0..96 {
+                app.update();
+                let (a, b) = (pose(&app, together).rotation, pose(&app, nested).rotation);
+                // Component by component: `angle_between` reads an acos
+                // near one, where a rounding of the dot is a whole 1e-3.
+                assert!(
+                    a.abs_diff_eq(b, 1e-5),
+                    "{name}, frame {frame}: {a} against {b}"
+                );
+                turned = turned.max(a.angle_between(Quat::IDENTITY));
+            }
+            assert!(turned > 0.05, "{name}: it does turn at its slide: {turned}");
+        }
+    }
+
+    /// A spawned slider, swell and spin together, under a parent at the
+    /// origin, at `base`.
+    fn spawn_mover(app: &mut App, base: Transform) -> Entity {
+        let mut node = Generator::default_cuboid();
+        node.spin = Some(Spin::about([0.0, 1.0, 0.0], constant(90.0)));
+        node.slide = Some(Slide::along([0.0, 1.0, 0.0], slide_swing(0.3, 4.0, 0.0)));
+        node.swell = Some(Swell::even(swell_swing(0.2, 4.0)));
+        let parent = app.world_mut().spawn(Transform::IDENTITY).id();
+        let spinner = Spinner::of_node(&node, base, 0.0).expect("moves");
+        app.world_mut()
+            .spawn((spinner, base, InheritedVisibility::VISIBLE, ChildOf(parent)))
+            .id()
+    }
+
+    #[test]
+    fn a_selection_snaps_place_and_size_home_and_rebases_all_three() {
+        let mut app = spin_app();
+        let base = Transform::from_xyz(1.0, 2.0, 3.0);
+        let part = spawn_mover(&mut app, base);
+        for _ in 0..40 {
+            app.update();
+        }
+        let moving = pose(&app, part);
+        assert!(moving.translation.distance(base.translation) > 0.05);
+        assert!(moving.scale.distance(base.scale) > 0.02);
+
+        hold(&mut app, true);
+        app.update();
+        assert_eq!(pose(&app, part), base, "snapped home in every channel");
+
+        // The gizmo moves and resizes the part; released, it moves from
+        // there - its new place and size are the authored ones.
+        let dragged = Transform::from_xyz(5.0, 2.0, 3.0).with_scale(Vec3::splat(2.0));
+        *app.world_mut().get_mut::<Transform>(part).unwrap() = dragged;
+        app.update();
+        assert_eq!(pose(&app, part), dragged, "the gizmo owns the pose");
+        hold(&mut app, false);
+        for _ in 0..40 {
+            app.update();
+        }
+        let after = pose(&app, part);
+        let swing = after.translation - dragged.translation;
+        assert!(swing.x.abs() < 1e-5 && swing.z.abs() < 1e-5 && swing.y.abs() <= 0.3 + 1e-5);
+        let ratio = after.scale / dragged.scale;
+        assert!(
+            (ratio.x - ratio.y).abs() < 1e-5 && (ratio.x - 1.0).abs() <= 0.2 + 1e-5,
+            "{ratio}"
+        );
+    }
+
+    #[test]
+    fn effects_off_holds_every_channel_at_its_authored_pose() {
+        let mut app = spin_app();
+        app.insert_resource(crate::state::LocalSettings {
+            effects_intensity: crate::state::EffectsIntensity::Off,
+            ..Default::default()
+        });
+        let base = Transform::from_xyz(0.0, 1.0, 0.0).with_scale(Vec3::splat(1.5));
+        let part = spawn_mover(&mut app, base);
+        for _ in 0..40 {
+            app.update();
+        }
+        assert_eq!(pose(&app, part), base);
+        assert!(settled(&app));
+    }
+
+    /// Reduced moves a slide and a swell half as far and leaves the turn as
+    /// authored: the same frames, the same clock, side by side.
+    #[test]
+    fn effects_reduced_halves_a_slide_and_a_swell_but_not_a_turn() {
+        let run = |effects| {
+            let mut app = spin_app();
+            app.insert_resource(crate::state::LocalSettings {
+                effects_intensity: effects,
+                ..Default::default()
+            });
+            let part = spawn_mover(&mut app, Transform::IDENTITY);
+            for _ in 0..40 {
+                app.update();
+            }
+            pose(&app, part)
+        };
+        let full = run(crate::state::EffectsIntensity::Full);
+        let calm = run(crate::state::EffectsIntensity::Reduced);
+        assert!(full.translation.y.abs() > 0.05, "{full:?}");
+        assert!((calm.translation.y - 0.5 * full.translation.y).abs() < 1e-5);
+        let grew = |tf: Transform| tf.scale.x - 1.0;
+        assert!(grew(full).abs() > 0.02);
+        assert!((grew(calm) - 0.5 * grew(full)).abs() < 1e-5);
+        assert_eq!(calm.rotation, full.rotation, "a turn is left as authored");
+    }
+
+    /// The critic's probe (#1935): a 4 m belt at half a metre a second. At
+    /// Reduced it runs at half speed over the same run - its offset reaches
+    /// the far end before it jumps back, as at Full - rather than jumping
+    /// back halfway along, in plain sight.
+    #[test]
+    fn effects_reduced_runs_a_belt_slower_over_its_whole_length() {
+        let reach = |effects| {
+            let mut app = spin_app();
+            app.insert_resource(crate::state::LocalSettings {
+                effects_intensity: effects,
+                ..Default::default()
+            });
+            let parent = app.world_mut().spawn(Transform::IDENTITY).id();
+            let mut node = Generator::default_cuboid();
+            node.slide = Some(Slide::along(
+                [1.0, 0.0, 0.0],
+                SlideTerm::Belt {
+                    speed: Fp(0.5),
+                    length: Fp(4.0),
+                    start: Fp::ZERO,
+                },
+            ));
+            let spinner = Spinner::of_node(&node, Transform::IDENTITY, 0.0).expect("moves");
+            let part = app
+                .world_mut()
+                .spawn((
+                    spinner,
+                    Transform::IDENTITY,
+                    InheritedVisibility::VISIBLE,
+                    ChildOf(parent),
+                ))
+                .id();
+            // Long enough for a half-speed run to reach its end: 4 m at a
+            // quarter metre a second is 16 s, and a frame is 1/64 s.
+            let mut furthest = 0.0_f32;
+            for _ in 0..(22 * 64) {
+                app.update();
+                let x = pose(&app, part).translation.x;
+                if x < furthest - 1.0 {
+                    return furthest;
+                }
+                furthest = furthest.max(x);
+            }
+            panic!("{effects:?}: the belt never jumped back (reached {furthest})");
+        };
+        let full = reach(crate::state::EffectsIntensity::Full);
+        let calm = reach(crate::state::EffectsIntensity::Reduced);
+        assert!(full > 0.99 * 4.0, "Full reaches {full}");
+        assert!(calm > 0.99 * 4.0, "Reduced reaches {calm}");
+    }
+
+    /// Every other slide term moves exactly half as far at Reduced at the
+    /// same moment, its phase unchanged, and a swell breathes half as much.
+    #[test]
+    fn effects_reduced_halves_each_slide_term_at_the_same_phase() {
+        let mut s = Spinner::build(
+            None,
+            Some(&Slide {
+                axis: Fp3([1.0, 0.0, 0.0]),
+                terms: vec![
+                    slide_swing(0.3, 4.0, 30.0),
+                    SlideTerm::Wobble {
+                        amplitude: Fp(0.2),
+                        period: Fp(3.0),
+                    },
+                    SlideTerm::Bounce {
+                        height: Fp(0.5),
+                        period: Fp(1.3),
+                        phase: Fp(10.0),
+                    },
+                    SlideTerm::Wind { amplitude: Fp(0.4) },
+                ],
+            }),
+            Some(&Swell {
+                weights: Fp3([1.0; 3]),
+                keep_volume: false,
+                terms: vec![swell_swing(0.2, 2.0), SwellTerm::Wind { amount: Fp(0.1) }],
+            }),
+            Transform::IDENTITY,
+            17.0,
+        )
+        .expect("moves");
+        s.motion.frame = Quat::IDENTITY;
+        let blow = wind(Vec3::X, 6.0);
+        let mut moved = 0.0_f32;
+        for k in 0..400 {
+            let now = 1.8e9 + k as f64 * 0.053;
+            let (full, calm) = (s.clock_shift(now, 1.0), s.clock_shift(now, 0.5));
+            assert_eq!(calm.0, 0.5 * full.0, "{now}");
+            assert_eq!(calm.1, 0.5 * full.1, "{now}");
+            let (full, calm) = (
+                s.wind_shift(now, blow, Vec3::ZERO, 1.0),
+                s.wind_shift(now, blow, Vec3::ZERO, 0.5),
+            );
+            assert_eq!(calm.0, 0.5 * full.0, "{now}");
+            assert_eq!(calm.1, 0.5 * full.1, "{now}");
+            moved = moved.max(full.0.abs());
+        }
+        assert!(moved > 0.1, "{moved}");
+    }
+
+    /// What the runtime draws never passes the bound the avatar scale cap
+    /// reads ([`Swell::peak_factor`]), wind at its strongest included, and
+    /// reaches it when the terms line up.
+    #[test]
+    fn a_drawn_swell_stays_within_its_peak_factor() {
+        let swells = [
+            Swell {
+                terms: vec![swell_swing(0.9, 2.0); 4],
+                ..Swell::default()
+            },
+            Swell {
+                weights: Fp3([0.0, 1.0, 0.0]),
+                keep_volume: true,
+                terms: vec![swell_swing(0.9, 2.0), SwellTerm::Wind { amount: Fp(-0.5) }],
+            },
+            Swell {
+                weights: Fp3([0.2, 0.6, 1.0]),
+                keep_volume: true,
+                terms: vec![SwellTerm::Wind { amount: Fp(0.9) }, swell_swing(0.3, 3.0)],
+            },
+        ];
+        for swell in swells {
+            let peak = swell.peak_factor();
+            let mut s =
+                Spinner::build(None, None, Some(&swell), Transform::IDENTITY, 0.0).expect("moves");
+            s.motion.frame = Quat::IDENTITY;
+            let mut widest = 0.0_f32;
+            for k in 0..4000 {
+                let now = k as f64 * 0.011;
+                // A gale far past the strongest wind the scale reads.
+                for speed in [0.0, 4.0, 1e3] {
+                    let amount = s.clock_shift(now, 1.0).1
+                        + s.wind_shift(now, wind(Vec3::X, speed), Vec3::ZERO, 1.0).1;
+                    widest = widest.max(s.swell_factors(amount).max_element());
+                }
+            }
+            assert!(
+                widest <= peak + 1e-4,
+                "{swell:?}: drew {widest} past {peak}"
+            );
+            assert!(
+                widest > 0.97 * peak,
+                "{swell:?}: the bound is tight: {widest} {peak}"
+            );
+        }
     }
 }

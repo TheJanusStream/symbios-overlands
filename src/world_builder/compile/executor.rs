@@ -1856,6 +1856,78 @@ mod tests {
         assert_ne!(node(0, &[0]).2, node(1, &[0]).2, "two copies, two clocks");
     }
 
+    /// #1935: a part that slides or swells carries a spinner, with no spin
+    /// of its own, and neither it nor anything below it is solid - while a
+    /// still part beside it keeps its collider. A light on the sliding part
+    /// hangs below it, so it moves with it.
+    #[test]
+    fn a_sliding_or_swelling_part_moves_without_colliders() {
+        use crate::world_builder::PrimMarker;
+        use crate::world_builder::light::NodeLight;
+        use crate::world_builder::spin::Spinner;
+        use avian3d::prelude::Collider;
+        let yard: Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.cuboid", "size": [10000, 10000, 10000], "solid": true,
+            "children": [
+                {"$type": "network.symbios.gen.cuboid", "size": [5000, 5000, 5000],
+                 "solid": true, "transform": {"translation": [0, 20000, 0]},
+                 "slide": {"terms": [{"$type": "network.symbios.slide.swing",
+                                      "amplitude": 3000, "period": 40000}]},
+                 "light": {"offset": [0, 10000, 0]},
+                 "children": [
+                    {"$type": "network.symbios.gen.cuboid", "size": [2000, 2000, 2000],
+                     "solid": true}
+                 ]},
+                {"$type": "network.symbios.gen.sphere", "radius": 5000, "resolution": 8,
+                 "solid": true, "transform": {"translation": [30000, 0, 0]},
+                 "swell": {"weights": [0, 10000, 0], "keep_volume": true,
+                           "terms": [{"$type": "network.symbios.swell.swing",
+                                      "amount": 1500, "period": 30000}]}},
+                // The control: the same box, standing still, collides.
+                {"$type": "network.symbios.gen.cuboid", "size": [5000, 5000, 5000],
+                 "solid": true, "transform": {"translation": [-30000, 0, 0]}}
+            ]
+        }))
+        .expect("wire JSON");
+        let mut record = test_record(1);
+        record.generators.insert("box".into(), yard);
+        let mut app = compile_app(record);
+        settle(&mut app);
+
+        let nodes: Vec<(Entity, Vec<usize>, bool, bool)> = app
+            .world_mut()
+            .query::<(Entity, &PrimMarker, Has<Spinner>, Has<Collider>)>()
+            .iter(app.world())
+            .map(|(e, marker, moves, solid)| (e, marker.path.clone(), moves, solid))
+            .collect();
+        let node = |path: &[usize]| {
+            nodes
+                .iter()
+                .find(|(_, p, ..)| p == path)
+                .unwrap_or_else(|| panic!("no node {path:?}: {nodes:?}"))
+        };
+        let (_, _, root_moves, root_solid) = node(&[]);
+        assert!(!root_moves && *root_solid, "the yard stands and is solid");
+        let (buoy, _, buoy_moves, buoy_solid) = node(&[0]);
+        let (_, _, rider_moves, rider_solid) = node(&[0, 0]);
+        let (_, _, cap_moves, cap_solid) = node(&[1]);
+        let (_, _, _, still_solid) = node(&[2]);
+        assert!(*buoy_moves && *cap_moves, "a slide alone, a swell alone");
+        assert!(!rider_moves, "a part below rides along");
+        assert!(
+            !buoy_solid && !rider_solid && !cap_solid,
+            "nothing that slides or swells collides: {nodes:?}"
+        );
+        assert!(still_solid, "a box that stands still collides");
+        let lit: Vec<Entity> = app
+            .world_mut()
+            .query_filtered::<&ChildOf, With<NodeLight>>()
+            .iter(app.world())
+            .map(ChildOf::parent)
+            .collect();
+        assert_eq!(lit, vec![*buoy], "the light hangs below the sliding part");
+    }
+
     /// #1921: a lit node carries its light as a child - a point light where
     /// the record says, a spot turned to its aim, under a turning node that
     /// carries it round - each at nothing until the budget fades it in, its

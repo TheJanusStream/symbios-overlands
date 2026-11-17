@@ -783,6 +783,8 @@ fn scatter_rubble(node: &mut Generator, rng: &mut ChaCha8Rng) {
             children: Vec::new(),
             audio: super::audio::SovereignAudioConfig::None,
             spin: None,
+            slide: None,
+            swell: None,
             light: None,
         });
     }
@@ -847,6 +849,8 @@ mod tests {
             children: Vec::new(),
             audio: super::super::audio::SovereignAudioConfig::None,
             spin: None,
+            slide: None,
+            swell: None,
             light: None,
         };
         let mut root = part(0.5);
@@ -1079,6 +1083,8 @@ mod tests {
                 children: Vec::new(),
                 audio: super::super::audio::SovereignAudioConfig::None,
                 spin: None,
+                slide: None,
+                swell: None,
                 light: None,
             }
         }
@@ -1233,6 +1239,8 @@ mod tests {
             children: Vec::new(),
             audio: super::super::audio::SovereignAudioConfig::None,
             spin: None,
+            slide: None,
+            swell: None,
             light: None,
         }
     }
@@ -1257,6 +1265,8 @@ mod tests {
             children: Vec::new(),
             audio: super::super::audio::SovereignAudioConfig::None,
             spin: None,
+            slide: None,
+            swell: None,
             light: None,
         }
     }

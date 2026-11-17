@@ -1171,8 +1171,10 @@ A forest is a few generators and a scatter placement each:
   Reduced halves the dip and moves it at most once a second, Off holds it
   steady. Like every number, each is scaled by 10 000 on the wire. A lamp
   on a turning node turns with it: a spot on a spinning hub is a
-  lighthouse. The World Editor's Light section, under Spin on every part,
-  sets all of it, writing values already on the wire's grid.
+  lighthouse. On a sliding node it moves with it (`slide`, #1935): a lamp
+  on a bobbing buoy bobs. The World Editor's Light section, under Spin,
+  Slide and Swell on every part, sets all of it, writing values already on
+  the wire's grid.
 
   ```json
   {"$type": "network.symbios.gen.sphere", "radius": 700, "resolution": 12,
@@ -1332,8 +1334,8 @@ manifest's budget.
   default: buildings), `box` (the box the parts fill: props), `trunk` (a
   cylinder as wide as the base, up to 3 m tall: trees), `none`. Parts carry
   no colliders of their own in a set.
-- **A set draws geometry only.** Sounds, spins, lights, particles, signs, portals
-  and gateways are left off its copies, and an L-system plant keeps its own
+- **A set draws geometry only.** Sounds, spins, slides, swells, lights,
+  particles, signs, portals and gateways are left off its copies, and an L-system plant keeps its own
   seed: place those as ordinary placements.
 - **Its budget is the world's, shared by need** (#1648): 22,000 near
   entities and 5,000 far copies across all sets. Every copy of every set,

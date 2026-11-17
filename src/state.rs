@@ -784,14 +784,16 @@ pub enum EffectsIntensity {
     #[default]
     Full,
     /// Bound the worst of it: decals shrink and fade, a zero cooldown
-    /// gets a floor so a Dwell recipe cannot stamp once per frame, and a
+    /// gets a floor so a Dwell recipe cannot stamp once per frame, a
     /// storm's lightning flashes at a third of its light and of the stops
-    /// it opens the exposure by (#1687).
+    /// it opens the exposure by (#1687), and a sliding or swelling part
+    /// moves half as far - a belt at half speed over its whole length
+    /// (#1935, `world_builder::spin`).
     Reduced,
     /// None at all - the same early-return the empty-registry path already
-    /// takes - every turning part stands at its authored pose (#1604,
-    /// `world_builder::spin`), and lightning does not flash, though its
-    /// thunder sounds (#1687).
+    /// takes - every turning, sliding or swelling part stands at its
+    /// authored pose (#1604, #1935, `world_builder::spin`), and lightning
+    /// does not flash, though its thunder sounds (#1687).
     Off,
 }
 

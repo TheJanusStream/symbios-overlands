@@ -125,6 +125,8 @@
 //! * [`serde_util`] - the serde adaptors the lexicons share.
 //! * [`spin`] - a generator node's client-side [`Spin`] (#1604): an axis
 //!   and the open-union [`SpinTerm`]s each client turns the node by.
+//! * [`slide`] and [`swell`] - a node's client-side [`Slide`] along an axis
+//!   and [`Swell`] of its size (#1935), animated beside its spin.
 //! * [`light`] - a generator node's [`LightSource`] (#1921): a point or spot
 //!   light every client draws, the nearest few at once.
 
@@ -211,7 +213,9 @@ pub mod room;
 pub mod ruin;
 pub mod sanitize;
 pub(crate) mod serde_util;
+pub mod slide;
 pub mod spin;
+pub mod swell;
 pub mod terrain;
 pub mod texture;
 pub mod tid;
@@ -256,7 +260,9 @@ pub use room::{
     find_terrain_config, publish_room_record, reset_room_record,
 };
 pub use sanitize::{limits, sanitize_avatar_visuals, sanitize_generator};
+pub use slide::{Slide, SlideTerm};
 pub use spin::{Spin, SpinTerm};
+pub use swell::{Swell, SwellTerm};
 pub use terrain::{
     SovereignGeneratorKind, SovereignMaterialConfig, SovereignSplatRule, SovereignTerrainConfig,
 };

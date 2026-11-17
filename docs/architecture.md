@@ -401,7 +401,10 @@ generation cores shared with the wasm Web Worker.
   signs / portals / particles, and [spin](../src/world_builder/spin.rs) - the
   turn each client gives a node whose record says it turns (a windmill's
   sails, a wheel rolling with its vehicle, a flag streaming in the room's
-  wind), held at the authored pose while an editor has a selection.
+  wind), and the slide and swell it gives one that moves along an axis or
+  breathes its size (a bobbing buoy, a conveyor's crates, a pulsing cap,
+  #1935), all three written by one component off one clock and held at the
+  authored pose while an editor has a selection.
 - [`src/ground_cover/`](../src/ground_cover/) - what the ground offers
   whatever grows on it (#1674): the terrain's height as a GPU texture, the
   splat weight map shared with the ground's material, and a cover mask of

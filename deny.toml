@@ -70,6 +70,17 @@ ignore = [
     # exception on 2026-10-24 and kept it after a close look (#1787). Delete
     # it when proto-blue moves to the 0.14 curves.
     "RUSTSEC-2026-0387",
+    # chrono is unmaintained (RUSTSEC-2026-0543, assigned 2026-11-17): every
+    # version, no fix line, jiff or time named in its place. A notice that
+    # nobody maintains it, not a known flaw in it. This repo depends on it
+    # directly - `Utc::now()` is the wall clock the turning day, moving parts,
+    # record keys (TIDs) and the map fetcher read, beside one local-time stamp
+    # and one date parse - and proto-blue-common 0.3.3 brings it to
+    # proto-blue-xrpc and proto-blue-oauth too, so moving this repo alone
+    # would not take it out of the graph. The owner recorded this exception
+    # on 2026-11-17 (#1937): this repo switches to jiff or time when
+    # proto-blue leaves chrono, and this entry is deleted then.
+    "RUSTSEC-2026-0543",
 ]
 
 [licenses]

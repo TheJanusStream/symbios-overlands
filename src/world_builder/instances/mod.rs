@@ -36,7 +36,8 @@
 //! World Editor can pick one ([`InstanceBuilds::pick`]) and move it.
 //!
 //! A set draws its generator's geometry and nothing else: its sounds,
-//! spins, lights, particles, signs, portals and gateways are left out
+//! spins, slides, swells, lights, particles, signs, portals and gateways
+//! are left out
 //! ([`strip_for_distance`]), as a merged part has no transform of its own
 //! to turn or emit from. Those are placed as placements of their own.
 //!
@@ -283,12 +284,15 @@ pub(crate) fn ray_box_distance(
 /// Strip from a tree drawn merged what it only costs: every sound, every
 /// spin (#1604 - a merged part has no transform of its own to turn, so a
 /// copy drawn whole would turn where its neighbours stand still), every
-/// light (#1921 - a light is drawn from a node of its own), and
+/// slide and swell (#1935, for the same reason), every light (#1921 - a
+/// light is drawn from a node of its own), and
 /// every node that is no geometry to see - particles, signs, portals,
 /// gateways, and any water, terrain or road a tree should not carry.
 pub(crate) fn strip_for_distance(tree: &mut Generator) {
     tree.audio = SovereignAudioConfig::None;
     tree.spin = None;
+    tree.slide = None;
+    tree.swell = None;
     tree.light = None;
     tree.children.retain(|child| kept_afar(&child.kind));
     for child in &mut tree.children {
@@ -1305,10 +1309,25 @@ mod tests {
                 },
             ))
         };
+        let sliding = || {
+            Some(crate::pds::Slide::along(
+                [0.0, 1.0, 0.0],
+                crate::pds::SlideTerm::fresh("Swing").expect("offered"),
+            ))
+        };
+        let swelling = || {
+            Some(crate::pds::Swell::even(
+                crate::pds::SwellTerm::fresh("Swing").expect("offered"),
+            ))
+        };
         let mut tree = Generator::default_cuboid();
         tree.audio = hum();
         tree.spin = turning();
+        tree.slide = sliding();
+        tree.swell = swelling();
         let mut wall = Generator::default_cuboid();
+        wall.slide = sliding();
+        wall.swell = swelling();
         wall.children
             .push(Generator::from_kind(GeneratorKind::default_particles()));
         wall.audio = hum();
@@ -1323,6 +1342,13 @@ mod tests {
         assert!(
             tree.children[0].spin.is_none(),
             "#1604: no part of a copy turns"
+        );
+        assert!(
+            tree.slide.is_none()
+                && tree.swell.is_none()
+                && tree.children[0].slide.is_none()
+                && tree.children[0].swell.is_none(),
+            "#1935: no part of a copy slides or swells"
         );
     }
 }

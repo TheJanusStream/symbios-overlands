@@ -141,13 +141,15 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   warm lamp every visitor's client draws, lighting what stands round it;
   its colour, brightness, reach, a spot's aim and cone, dusk to dawn and a
   flicker or pulse are in [region.md](region.md) ("A node can give off
-  light"). A light on a turning node turns with it. The catalogue's lamps,
+  light"). A light on a turning node turns with it, and on a sliding or
+  swelling one moves with it. The catalogue's lamps,
   lanterns, torches and beacons carry lights already (#1923), so a copy of
   one brings its light along. Put a light on the part the eye reads as the
   lamp and make that part glow: a light on a flame hidden inside an opaque
   lantern reads as an unlit lamp beside its own pool, as nothing here is
   see-through but alpha cards (#1927, the owner's rule). An instance set's
-  copies draw no light (nor sound nor turn): a lamp meant to light stands in
+  copies draw no light (nor sound, turn, slide or swell): a lamp meant to
+  light stands in
   a placement of its own (Kairos's yard masts, live 22).
 - **A face of a primitive can wear its own material** (#955) - the owner's
   way to end a log, not an extra part (live session 23): `"faces": [{"face":
@@ -209,6 +211,60 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   hub, an axle - stood unturned, and nest the blades under it. A turning part
   and everything under it has no solid collider. Everything stands still while
   the World Editor has a selection; deselect to watch it.
+- **A part can slide** (#1935): `"slide": {"axis": [10000, 0, 0], "terms":
+  [...]}` on any node a spin may sit on. Every visitor's client moves the
+  node, and everything below it - its light and its sound too - along
+  `axis` (a direction in the node's own frame after its rotation, as a
+  spin's; leave it out for up), in metres whatever the node's own scale -
+  though an ancestor's scale stretches it, as it does the node's place: a
+  part inside a sub-assembly scaled 0.1 slides a tenth as far - while
+  `transform` stays the place on record. Up to 4 terms, summed: `.swing`
+  (`amplitude` m either side, one swing every `period` s, starting `phase`
+  deg in), `.wobble` (`amplitude`, `period`), `.wind` (up to `amplitude` m
+  when the world's wind blows along the axis, downwind positive, further in
+  a stronger wind), `.bounce` (`height` m, one hop every `period` s, back on
+  its place between hops; `phase` 180 is a whole hop) and `.belt` (`speed`
+  m/s, a minus runs the other way; `length` m before it jumps back to its
+  place; `start` m along the run). A buoy bobbing 0.3 m every 4 s is
+  `"slide": {"terms": [{"$type": "network.symbios.slide.swing", "amplitude":
+  3000, "period": 40000}]}`. A conveyor of four crates is four crates at ONE
+  place, each with `{"$type": "network.symbios.slide.belt", "speed": 5000,
+  "length": 40000, "start": S}` along the belt's axis and S 0 (left out),
+  10000, 20000 and 30000: they ride as one stream a metre apart at half a
+  metre a second, and each jumps back 4 m when it reaches the end - hide
+  both ends of the run inside the machine. A belt's crates spaced along the
+  run with no `start` jump back all at once and leave the run half empty.
+  A `.roll`, `.speed` or `.lean` spin on a belt part, or on a part under
+  one, feels the jump back as a lurch: keep them off belt parts.
+  Distances are held to the tree's ceiling on a part's size, 100 m in a
+  world and 16 m on a body. A slide reads the spin's clock and copy offset,
+  so a spin's swing and a slide's of one period and phase peak together.
+- **A part can swell** (#1935): `"swell": {"weights": [0, 10000, 0],
+  "keep_volume": true, "terms": [...]}` on the same nodes. Every visitor's
+  client breathes the node's size, and everything below it with it. The
+  terms sum to an amount, a share of the authored size (1000 is a tenth),
+  and each of the node's own axes grows by the amount times its weight
+  (0 to 10000; leave `weights` out for an even swell), never below a tenth
+  of its size. `"keep_volume": true` makes the other axes give back what one
+  takes: weighted up only, the part stretches up as it squeezes in - squash
+  and stretch - and with equal weights it does not change at all. Up to 4
+  terms: `.swing` (`amount` either side, at most 9000, `period`, `phase`),
+  `.wobble` (`amount`, `period`) and `.wind` (up to `amount` in a gust,
+  and further in a stronger wind - up to twice that - whichever way it
+  blows). A mushroom cap that breathes every 3 s,
+  squashing and stretching, is `"swell": {"weights": [0, 10000, 0],
+  "keep_volume": true, "terms": [{"$type": "network.symbios.swell.swing",
+  "amount": 1500, "period": 30000}]}`.
+- **A slide and a swell are for looking at**, as a spin is: a sliding or
+  swelling part and everything under it has no solid collider, both stand
+  still while the World Editor has a selection, and an instance set's
+  copies draw neither (nor a turn, a light or a sound). A visitor's Effects
+  setting calms them: Reduced moves a slide and a swell half as far and
+  runs a belt at half speed over its whole length - a turn keeps its
+  motion - and Off holds all three still. A light or a sound
+  on a sliding part moves with it: a lamp on a bobbing buoy bobs. The World
+  Editor's Slide and Swell sections, under Spin on every part, set all of
+  it, writing values already on the wire's grid.
 - **A generator nests at most 16 levels** (`MAX_GENERATOR_DEPTH`,
   src/pds/sanitize/limits.rs); the sanitiser drops what lies deeper and says
   so only as an `adjusted_at` ending in `/children`. A chain of animated

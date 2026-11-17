@@ -320,6 +320,8 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         children: Vec::new(),
         audio: crate::pds::SovereignAudioConfig::None,
         spin: None,
+        slide: None,
+        swell: None,
         light: None,
     });
 
@@ -1145,6 +1147,8 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
             children: Vec::new(),
             audio: crate::pds::SovereignAudioConfig::None,
             spin: None,
+            slide: None,
+            swell: None,
             light: None,
         });
     }

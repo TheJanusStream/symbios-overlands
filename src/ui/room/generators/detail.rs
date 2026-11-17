@@ -185,6 +185,9 @@ pub(super) fn draw_detail_panel(
     } else {
         None
     };
+    // And how far a part of this tree may slide (#1936): as far as a part
+    // of it may be long.
+    let part_ceiling = source.part_size_ceiling();
     // Why a grammar's seed in this tree draws nothing (#1573), and whether
     // the terrain shapes Berlin's ground (#1642).
     let seed_note = source.grammar_seed_note(&id.root);
@@ -382,6 +385,30 @@ pub(super) fn draw_detail_panel(
                 super::spin::draw_spin_section(
                     ui,
                     &mut node.spin,
+                    &node.kind,
+                    spin_refusal,
+                    &salt,
+                    dirty,
+                );
+
+                // How every client moves this node along an axis, and
+                // breathes its size (#1936).
+                ui.add_space(6.0);
+                ui.separator();
+                super::slide::draw_slide_section(
+                    ui,
+                    &mut node.slide,
+                    &node.kind,
+                    spin_refusal,
+                    part_ceiling,
+                    &salt,
+                    dirty,
+                );
+                ui.add_space(6.0);
+                ui.separator();
+                super::swell::draw_swell_section(
+                    ui,
+                    &mut node.swell,
                     &node.kind,
                     spin_refusal,
                     &salt,

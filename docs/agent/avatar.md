@@ -106,7 +106,9 @@ sooner.
 - **Make the root the node at the origin with no transform**, so every
   child's translation is a body-space position.
 - **Caps** (the sanitiser's, for a body): any one dimension 16 m, the
-  product of scales down any branch 4, 1024 nodes, 16 points on a `lathe`
+  product of scales down any branch 4 - each part's `swell` counted at its
+  fullest, a `.wind` term at twice its amount, and a swell past the room
+  left breathed down, never the scale - 1024 nodes, 16 points on a `lathe`
   or `spine`.
 - `lathe` stations run bottom to top **in list order**, so one profile can
   go out along an underside and back over a dome (a mushroom cap); a

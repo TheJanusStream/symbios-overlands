@@ -101,18 +101,21 @@ pub fn spawn_avatar_visuals(
     );
 }
 
-/// A body's visuals as they are spawned: the root never turns (#1604). The
-/// gait layer writes the visuals root's pose every frame, so a spin there -
-/// one a live edit carried past the sanitiser, which takes it off a saved
-/// body - could only fight it. A node below the root may turn, and so may a
-/// worn prop's root, which no gait moves. Borrowed unless the root does
-/// carry a spin, so the editor's per-frame rebuild clones nothing.
+/// A body's visuals as they are spawned: the root never turns (#1604),
+/// slides or swells (#1935). The gait layer writes the visuals root's pose
+/// every frame, so a spin there - one a live edit carried past the
+/// sanitiser, which takes it off a saved body - could only fight it. A node
+/// below the root may move, and so may a worn prop's root, which no gait
+/// moves. Borrowed unless the root does carry one, so the editor's
+/// per-frame rebuild clones nothing.
 fn with_still_root(visuals: &crate::pds::Generator) -> std::borrow::Cow<'_, crate::pds::Generator> {
-    if visuals.spin.is_none() {
+    if visuals.spin.is_none() && visuals.slide.is_none() && visuals.swell.is_none() {
         return std::borrow::Cow::Borrowed(visuals);
     }
     let mut still = visuals.clone();
     still.spin = None;
+    still.slide = None;
+    still.swell = None;
     std::borrow::Cow::Owned(still)
 }
 

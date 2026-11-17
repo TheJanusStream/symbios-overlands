@@ -269,12 +269,16 @@ impl GeneratorBody {
     /// The generator body's clamp - shared by the avatar record and an
     /// avatar inventory item (#1838), which carries this same payload.
     pub fn sanitize(&mut self) {
-        sanitize_avatar_visuals(&mut self.visuals);
         // The visuals ROOT is the gait layer's to move (#1604): it
-        // writes the root's pose every frame, so a spin there could
-        // only fight it. Every node below may turn, and a worn
-        // prop's root may too - nothing else moves that.
+        // writes the root's pose every frame, so a spin, a slide or a
+        // swell there (#1935) could only fight it. Every node below may
+        // move, and a worn prop's root may too - nothing else moves that.
+        // Dropped before the clamp, so the avatar scale cap does not spend
+        // its room on a root swell that is never drawn.
         self.visuals.spin = None;
+        self.visuals.slide = None;
+        self.visuals.swell = None;
+        sanitize_avatar_visuals(&mut self.visuals);
     }
 }
 
@@ -360,22 +364,40 @@ mod tests {
         assert_eq!(future.body, AvatarBody::Unknown);
     }
 
-    /// #1604: a body's visuals root is the gait layer's to move, so its spin
-    /// goes; the parts below it keep theirs, and so does a worn prop's root,
-    /// which nothing else moves.
+    /// #1604, #1935: a body's visuals root is the gait layer's to move, so
+    /// its spin, slide and swell go; the parts below it keep theirs - a
+    /// slide held to an avatar's own ceiling on a part's size - and so does
+    /// a worn prop's root, which nothing else moves.
     #[test]
     fn a_body_root_cannot_turn_but_its_parts_and_a_worn_props_root_can() {
-        use crate::pds::{Fp, Spin, SpinTerm};
+        use crate::pds::sanitize::limits;
+        use crate::pds::{Fp, Slide, SlideTerm, Spin, SpinTerm, Swell, SwellTerm};
         let turning = || {
             Some(Spin::about(
                 [0.0, 1.0, 0.0],
                 SpinTerm::Constant { rate: Fp(30.0) },
             ))
         };
+        // Sixty metres: inside a room's ceiling, far past a body's.
+        let sliding = || {
+            Some(Slide::along(
+                [0.0, 1.0, 0.0],
+                SlideTerm::Swing {
+                    amplitude: Fp(60.0),
+                    period: Fp(2.0),
+                    phase: Fp::ZERO,
+                },
+            ))
+        };
+        let swelling = || Some(Swell::even(SwellTerm::fresh("Swing").expect("offered")));
         let mut visuals = Generator::default_cuboid();
         visuals.spin = turning();
+        visuals.slide = sliding();
+        visuals.swell = swelling();
         let mut wheel = Generator::default_cuboid();
         wheel.spin = turning();
+        wheel.slide = sliding();
+        wheel.swell = swelling();
         visuals.children.push(wheel);
 
         let mut body = AvatarBody::generator(visuals.clone());
@@ -384,11 +406,24 @@ mod tests {
             panic!("still a generator body");
         };
         assert!(body.visuals.spin.is_none(), "the gait moves the root");
-        assert!(body.visuals.children[0].spin.is_some(), "a wheel turns");
+        assert!(body.visuals.slide.is_none() && body.visuals.swell.is_none());
+        let part = &body.visuals.children[0];
+        assert!(part.spin.is_some(), "a wheel turns");
+        assert!(part.swell.is_some(), "a part swells");
+        assert_eq!(
+            part.slide.as_ref().map(|s| s.terms.clone()),
+            Some(vec![SlideTerm::Swing {
+                amplitude: Fp(limits::MAX_AVATAR_PRIM_DIM_M),
+                period: Fp(2.0),
+                phase: Fp::ZERO,
+            }]),
+            "a part slides no further than a body's part may be long"
+        );
 
         let mut prop = super::super::AttachmentRecord::new(visuals, symbios_avatar::Socket::Crown);
         prop.sanitize();
         assert!(prop.item.spin.is_some(), "a worn prop's root may turn");
+        assert!(prop.item.slide.is_some() && prop.item.swell.is_some());
     }
 
     #[test]

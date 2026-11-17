@@ -39,6 +39,8 @@
 //! * [`particles`] - ParticleSystem panel (emitter shape, dynamics, atlas).
 //! * [`water`] - Water volume editor.
 //! * [`spin`] - every node's Spin section: whether and how it turns.
+//! * [`slide`] and [`swell`] - every node's Slide and Swell sections: how
+//!   it moves along an axis and how its size breathes (#1936).
 //! * [`light`] - every node's Light section: the light it gives off.
 
 mod detail;
@@ -47,7 +49,9 @@ mod particles;
 mod primitive;
 mod reparent;
 mod sign;
+mod slide;
 mod spin;
+mod swell;
 mod tree;
 pub(crate) use tree::node_salt;
 mod water;
@@ -236,11 +240,19 @@ pub(crate) trait GeneratorTreeSource {
         true
     }
 
-    /// Why this tree's ROOT may not turn, or `None` when it may (#1604).
-    /// The Spin section paints the reason in place of its controls: a
-    /// control hidden without a word reads as a feature that is missing.
+    /// Why this tree's ROOT may not turn (#1604), slide or swell (#1935), or
+    /// `None` when it may. The Spin, Slide and Swell sections paint the
+    /// reason in place of their controls: a control hidden without a word
+    /// reads as a feature that is missing.
     fn root_spin_refusal(&self) -> Option<&'static str> {
         None
+    }
+    /// The longest a part of this tree may be (m), which its sanitiser
+    /// holds a slide's distances to (#1935): a room's ceiling unless the
+    /// tree is worn or is a body, whose parts are held tighter. The Slide
+    /// section offers no more.
+    fn part_size_ceiling(&self) -> f32 {
+        crate::pds::sanitize::limits::MAX_PRIM_DIM_M
     }
     /// Why a light on any node of `root`'s tree draws nowhere (#1922), or
     /// `None` where it may draw. The Light section paints the reason in
@@ -711,9 +723,13 @@ impl GeneratorTreeSource for AvatarVisualsTreeSource<'_> {
     }
     fn root_spin_refusal(&self) -> Option<&'static str> {
         Some(
-            "The root of a body's visuals cannot turn: its gait moves it every \
-             frame. Turn a part below it - a wheel, a rotor - instead.",
+            "The root of a body's visuals cannot turn, slide or swell: its gait \
+             moves it every frame. Move a part below it - a wheel, a rotor - \
+             instead.",
         )
+    }
+    fn part_size_ceiling(&self) -> f32 {
+        crate::pds::sanitize::limits::MAX_AVATAR_PRIM_DIM_M
     }
 }
 
@@ -772,6 +788,10 @@ impl GeneratorTreeSource for AttachmentTreeSource<'_> {
     }
     fn allowed_kinds_for_child(&self) -> &'static [&'static str] {
         AVATAR_KINDS
+    }
+    /// A worn prop is sanitised as a body's parts are.
+    fn part_size_ceiling(&self) -> f32 {
+        crate::pds::sanitize::limits::MAX_AVATAR_PRIM_DIM_M
     }
 }
 

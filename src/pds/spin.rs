@@ -299,7 +299,9 @@ impl SpinTerm {
     }
 }
 
-fn default_swing_period() -> Fp {
+/// A swing's period when the record leaves it out (s) - a slide's and a
+/// swell's swing and wobble share it (`super::slide`, `super::swell`).
+pub(super) fn default_swing_period() -> Fp {
     Fp(2.0)
 }
 
@@ -328,7 +330,8 @@ fn default_vane_facing() -> Fp3 {
 /// Whether `v` names a direction at all: finite and not zero. Lenient about
 /// length, as the runtime is when it normalises one - a direction written
 /// as `[0, 0, 1]` on the wire (a ten-thousandth long) still points along Z.
-fn is_direction(v: Fp3) -> bool {
+/// A slide's axis is read the same way (`super::slide`).
+pub(super) fn is_direction(v: Fp3) -> bool {
     let len_sq = v.0[0] * v.0[0] + v.0[1] * v.0[1] + v.0[2] * v.0[2];
     len_sq.is_finite() && len_sq > 1e-12
 }

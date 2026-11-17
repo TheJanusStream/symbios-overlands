@@ -29,6 +29,8 @@ pub(in crate::catalogue::items) fn prim(
         children: Vec::new(),
         audio: crate::pds::SovereignAudioConfig::None,
         spin: None,
+        slide: None,
+        swell: None,
         light: None,
     }
 }
@@ -55,6 +57,8 @@ pub(in crate::catalogue::items) fn prim_scaled(
         children: Vec::new(),
         audio: crate::pds::SovereignAudioConfig::None,
         spin: None,
+        slide: None,
+        swell: None,
         light: None,
     }
 }

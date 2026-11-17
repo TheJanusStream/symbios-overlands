@@ -2479,11 +2479,12 @@ impl GeneratorKind {
         self.common().is_some()
     }
 
-    /// Whether a node of this kind may turn (#1604). A spin turns a node
-    /// about its own origin with everything below it: on a Terrain root that
-    /// is a whole region carried round its origin, and Water and roads are
-    /// laid in the world's terms whatever their node's pose. The sanitiser
-    /// takes a spin off these kinds and the spawner ignores one.
+    /// Whether a node of this kind may turn (#1604), slide or swell (#1935).
+    /// A spin turns a node about its own origin with everything below it: on
+    /// a Terrain root that is a whole region carried round its origin, and
+    /// Water and roads are laid in the world's terms whatever their node's
+    /// pose - a slide or a swell would carry them as far. The sanitiser
+    /// takes all three off these kinds and the spawner ignores them.
     pub fn may_spin(&self) -> bool {
         !matches!(
             self,
@@ -2907,6 +2908,18 @@ pub struct Generator {
     /// older client ignores the key. See [`super::spin`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spin: Option<super::spin::Spin>,
+    /// How each client moves this node and everything below it along an
+    /// axis (#1935) - animation only, as a spin is. `None` (the common
+    /// case, left off the wire) keeps the node in its authored place; an
+    /// older client ignores the key. See [`super::slide`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slide: Option<super::slide::Slide>,
+    /// How each client breathes this node's size, and everything below it
+    /// with it (#1935) - animation only, as a spin is. `None` (the common
+    /// case, left off the wire) keeps the node at its authored size; an
+    /// older client ignores the key. See [`super::swell`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swell: Option<super::swell::Swell>,
     /// The light this node gives off (#1921), drawn by every client among
     /// the nearest few - see [`super::light`]. `None` (the common case,
     /// left off the wire) gives none; an older client ignores the key.
@@ -2925,6 +2938,8 @@ impl Generator {
             children: Vec::new(),
             audio: super::audio::SovereignAudioConfig::None,
             spin: None,
+            slide: None,
+            swell: None,
             light: None,
         }
     }
@@ -2937,6 +2952,35 @@ impl Generator {
             return None;
         }
         self.spin.as_ref().filter(|spin| spin.moves())
+    }
+
+    /// The node's slide, when it moves anything (see
+    /// [`super::slide::Slide::moves`]) on a kind that may move
+    /// ([`GeneratorKind::may_spin`]).
+    pub fn moving_slide(&self) -> Option<&super::slide::Slide> {
+        if !self.kind.may_spin() {
+            return None;
+        }
+        self.slide.as_ref().filter(|slide| slide.moves())
+    }
+
+    /// The node's swell, when it changes anything (see
+    /// [`super::swell::Swell::moves`]) on a kind that may move
+    /// ([`GeneratorKind::may_spin`]).
+    pub fn moving_swell(&self) -> Option<&super::swell::Swell> {
+        if !self.kind.may_spin() {
+            return None;
+        }
+        self.swell.as_ref().filter(|swell| swell.moves())
+    }
+
+    /// Whether every client animates this node - it turns, slides or
+    /// swells - which takes it, and everything below it, out of the physics
+    /// (#1604, #1935).
+    pub fn animates(&self) -> bool {
+        self.moving_spin().is_some()
+            || self.moving_slide().is_some()
+            || self.moving_swell().is_some()
     }
 
     /// Convenience constructor for the canonical 1×1×1 cuboid.

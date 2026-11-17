@@ -389,12 +389,15 @@ pub fn settings_ui(
                                 crate::state::EffectsIntensity::Reduced => {
                                     "Keep them, smaller and quieter, and never more than \
                                  one of each per second. Lightning flashes far more \
-                                 softly."
+                                 softly, and the world's bobbing, bouncing and \
+                                 breathing parts move half as far, its conveyors \
+                                 at half speed."
                                 }
                                 crate::state::EffectsIntensity::Off => {
                                     "None at all, and no lightning flashes, though you \
-                                 still hear the thunder. The world's turning parts - \
-                                 windmills, wheels, pendulums - stand still. Worlds you \
+                                 still hear the thunder. The world's moving parts - \
+                                 windmills, wheels, pendulums, bobbing buoys - stand \
+                                 still. Worlds you \
                                  visit are authored by other people, and this is the \
                                  only control over what they can put on your screen."
                                 }

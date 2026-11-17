@@ -14,8 +14,9 @@
 //! `material.sanitize()` rather than `sanitize_material_settings(material)`.
 //! Per-domain impls live in the sibling modules - [`transform`],
 //! [`material`], [`terrain`] (with its [`grass`] group, #1700), [`water`],
-//! [`sign`], [`particles`], [`primitive`], [`contact_effects`], [`spin`]
-//! and [`light`] (a node's light source, #1921) - with
+//! [`sign`], [`particles`], [`primitive`], [`contact_effects`], [`spin`],
+//! [`slide`] and [`swell`] (#1935) and [`light`] (a node's light source,
+//! #1921) - with
 //! [`common`] holding
 //! shared clamp helpers (NaN-finite checks, allow-list filters) and
 //! [`limits`] holding every numeric bound as a `pub const` so callers
@@ -39,7 +40,9 @@ mod paths;
 mod primitive;
 mod sign;
 pub(crate) use sign::{is_fetchable_endpoint, is_fetchable_reference, refusal_reason};
+mod slide;
 mod spin;
+mod swell;
 mod terrain;
 mod transform;
 mod water;
@@ -109,7 +112,7 @@ fn sanitize_generator_node(
     }
 
     sanitize_kind_with(&mut node.kind, max_dim);
-    sanitize_node_spin(node);
+    sanitize_node_motion(node, max_dim);
     if let Some(light) = node.light.as_mut() {
         light.sanitize();
     }
@@ -140,17 +143,32 @@ fn sanitize_generator_node(
     }
 }
 
-/// Clamp a node's spin (#1604), and take it off the kinds that may not turn
-/// ([`GeneratorKind::may_spin`]). A spin with no terms left is no spin, and
-/// is written as none.
-fn sanitize_node_spin(node: &mut Generator) {
+/// Clamp a node's spin (#1604), slide and swell (#1935), and take them off
+/// the kinds that may not move ([`GeneratorKind::may_spin`]). One with no
+/// terms left is none, and is written as none. A slide's distances are held
+/// to `max_dim`, the tree's ceiling on a part's size.
+fn sanitize_node_motion(node: &mut Generator, max_dim: f32) {
     if !node.kind.may_spin() {
         node.spin = None;
+        node.slide = None;
+        node.swell = None;
     }
     if let Some(spin) = node.spin.as_mut() {
         spin.sanitize();
         if spin.terms.is_empty() {
             node.spin = None;
+        }
+    }
+    if let Some(slide) = node.slide.as_mut() {
+        slide::sanitize_slide(slide, max_dim);
+        if slide.terms.is_empty() {
+            node.slide = None;
+        }
+    }
+    if let Some(swell) = node.swell.as_mut() {
+        swell.sanitize();
+        if swell.terms.is_empty() {
+            node.swell = None;
         }
     }
 }
@@ -486,7 +504,9 @@ pub fn sanitize_avatar_visuals(generator: &mut Generator) {
 }
 
 /// Hold the product of scales along every root-to-leaf path under
-/// [`limits::MAX_AVATAR_SCALE_PRODUCT`] (#1221 f327).
+/// [`limits::MAX_AVATAR_SCALE_PRODUCT`] (#1221 f327) - each node's swell
+/// (#1935) counted at its peak, for a swell multiplies the node's scale on
+/// every screen that draws it.
 ///
 /// Clamping the node rather than rejecting the record, like the rest of
 /// this module: an oversized body degrades to a large-but-bounded one that
@@ -494,19 +514,34 @@ pub fn sanitize_avatar_visuals(generator: &mut Generator) {
 /// wearer. Clamping an ANCESTOR bounds everything under it, because that is
 /// how the composition worked in the first place - which is why this walks
 /// top-down and carries the product forward.
+///
+/// The transform is clamped first, as it always was, and a swell then gets
+/// what room is left: its amounts shrink until its peak fits, and a swell
+/// with no room left goes, so a body that only breathes too hard keeps its
+/// size on record and loses only the excess breath.
 fn clamp_accumulated_scale(node: &mut Generator, carried: f32) {
+    let cap = limits::MAX_AVATAR_SCALE_PRODUCT;
     let s = node.transform.scale.0;
     let local = s[0].abs().max(s[1].abs()).max(s[2].abs());
     let mut here = carried * local;
-    if here > limits::MAX_AVATAR_SCALE_PRODUCT {
+    if here > cap {
         // Scale this node down by exactly the overage, preserving its
         // per-axis proportions - a body clamped to a cube would be a
         // stranger defect than the one being fixed.
-        let shrink = limits::MAX_AVATAR_SCALE_PRODUCT / here;
+        let shrink = cap / here;
         node.transform.scale =
             crate::pds::types::Fp3([s[0] * shrink, s[1] * shrink, s[2] * shrink]);
-        here = limits::MAX_AVATAR_SCALE_PRODUCT;
+        here = cap;
     }
+    if let Some(swell) = node.swell.as_mut()
+        && here * swell.peak_factor() > cap
+    {
+        swell.fit_peak(cap / here);
+        if !swell.moves() {
+            node.swell = None;
+        }
+    }
+    here *= node.swell.as_ref().map_or(1.0, |swell| swell.peak_factor());
     for child in node.children.iter_mut() {
         clamp_accumulated_scale(child, here);
     }
@@ -519,10 +554,14 @@ fn clamp_accumulated_scale(node: &mut Generator, carried: f32) {
 /// was `per-node scale ^ depth` - up to `1000 ^ 16` at the sanitiser's own
 /// depth limit (#1221 f327). This is what says how much headroom a cap on
 /// that product actually has over the bodies the app ships.
+///
+/// A node's swell counts at its peak ([`crate::pds::Swell::peak_factor`]),
+/// for at that moment it multiplies the node's scale and everything below.
 pub fn accumulated_scale(node: &Generator) -> f32 {
     fn walk(node: &Generator, carried: f32) -> f32 {
         let s = node.transform.scale.0;
-        let here = carried * s[0].abs().max(s[1].abs()).max(s[2].abs());
+        let swell = node.swell.as_ref().map_or(1.0, |swell| swell.peak_factor());
+        let here = carried * s[0].abs().max(s[1].abs()).max(s[2].abs()) * swell;
         node.children
             .iter()
             .map(|child| walk(child, here))
@@ -803,6 +842,7 @@ mod road_field_tests {
 #[cfg(test)]
 mod avatar_extent_tests {
     use super::*;
+    use crate::pds::swell::{Swell, SwellTerm};
 
     /// Every generator body this build can produce, for the guard below and
     /// for anyone re-tuning the caps. The airship's part catalogue, which
@@ -941,5 +981,152 @@ mod avatar_extent_tests {
             panic!("kind survives");
         };
         assert_eq!(size.0, [100.0, 100.0, 100.0]);
+    }
+
+    // --- A swell inside the cap (#1935) ------------------------------------
+
+    fn swelling(weights: [f32; 3], keep_volume: bool, terms: Vec<SwellTerm>) -> Generator {
+        let mut node = Generator::default_cuboid();
+        node.swell = Some(Swell {
+            weights: crate::pds::types::Fp3(weights),
+            keep_volume,
+            terms,
+        });
+        node
+    }
+
+    fn breath(amount: f32) -> SwellTerm {
+        SwellTerm::Swing {
+            amount: crate::pds::types::Fp(amount),
+            period: crate::pds::types::Fp(2.0),
+            phase: crate::pds::types::Fp::ZERO,
+        }
+    }
+
+    /// A root cuboid with `layers` nested cuboids under it, each the node
+    /// `layer` makes.
+    fn stack(layers: usize, layer: impl Fn() -> Generator) -> Generator {
+        let mut root = Generator::default_cuboid();
+        let mut slot = &mut root;
+        for _ in 0..layers {
+            slot.children.push(layer());
+            slot = &mut slot.children[0];
+        }
+        root
+    }
+
+    /// The critic's probe: three nested parts, each breathing by four of the
+    /// deepest swings, put 4.6 on each and 97 down the path - a body twenty
+    /// times past the cap on every screen it is worn into. Wind terms read
+    /// at the strongest wind, and a kept volume that grows the axes a swell
+    /// does not weight, escape the same way. After the sanitiser, every path
+    /// fits, with each swell at its peak.
+    #[test]
+    fn a_swell_cannot_breathe_a_body_past_the_scale_cap() {
+        let cap = limits::MAX_AVATAR_SCALE_PRODUCT;
+        let probes: [(&str, Generator); 3] = [
+            (
+                "four deep swings",
+                stack(3, || swelling([1.0; 3], false, vec![breath(0.9); 4])),
+            ),
+            (
+                "four winds in a gale",
+                stack(3, || {
+                    swelling(
+                        [1.0; 3],
+                        false,
+                        vec![
+                            SwellTerm::Wind {
+                                amount: crate::pds::types::Fp(0.9)
+                            };
+                            4
+                        ],
+                    )
+                }),
+            ),
+            (
+                "a kept volume squeezed thin",
+                stack(4, || {
+                    swelling([0.0, 1.0, 0.0], true, vec![breath(-0.9), breath(0.9)])
+                }),
+            ),
+        ];
+        let mut worst = 0.0_f32;
+        for (name, mut body) in probes {
+            assert!(
+                accumulated_scale(&body) > 2.0 * cap,
+                "{name}: the probe must start past the cap: {}",
+                accumulated_scale(&body)
+            );
+            let mut worn = body.clone();
+            sanitize_avatar_visuals(&mut body);
+            let after = accumulated_scale(&body);
+            worst = worst.max(after);
+            assert!(after <= cap, "{name}: {after} passes the cap {cap}");
+            // The excess breath goes, never the size on record.
+            let mut node = &body;
+            loop {
+                assert_eq!(node.transform.scale.0, [1.0; 3], "{name}");
+                let Some(child) = node.children.first() else {
+                    break;
+                };
+                node = child;
+            }
+            assert!(
+                body.children[0].swell.is_some(),
+                "{name}: the first swell keeps what room there is"
+            );
+            // A worn prop's tree is bounded the same way.
+            crate::pds::avatar::wardrobe::sanitize_worn_prop(
+                &mut worn,
+                &mut String::from("head"),
+                &mut 0,
+                &mut 0,
+                &mut crate::pds::types::TransformData::default(),
+            );
+            assert!(accumulated_scale(&worn) <= cap, "{name}: worn");
+        }
+        // The headline number for the report: the worst path after it.
+        assert!(
+            worst > 0.9 * cap,
+            "the room is used, not thrown away: {worst}"
+        );
+    }
+
+    /// The fitted amounts lie on the wire's grid: a fitted body saves,
+    /// reloads and sanitises again to the same bytes.
+    #[test]
+    fn a_fitted_swell_round_trips_to_the_same_bytes() {
+        let mut body = stack(3, || {
+            swelling([1.0, 0.5, 0.25], false, vec![breath(0.9); 4])
+        });
+        sanitize_avatar_visuals(&mut body);
+        let saved = serde_json::to_string(&body).expect("serialise");
+        let mut reloaded: Generator = serde_json::from_str(&saved).expect("decode");
+        sanitize_avatar_visuals(&mut reloaded);
+        assert_eq!(serde_json::to_string(&reloaded).expect("serialise"), saved);
+    }
+
+    /// A body whose swells fit is left to the byte: the cap only spends
+    /// what is past it.
+    #[test]
+    fn a_body_with_modest_swells_is_untouched() {
+        let mut body = Generator::default_cuboid();
+        let mut arm = swelling([1.0; 3], false, vec![breath(0.1), breath(0.05)]);
+        arm.transform.scale = crate::pds::types::Fp3([1.5, 1.0, 1.0]);
+        let mut cap = swelling([0.0, 1.0, 0.0], true, vec![breath(0.15)]);
+        cap.children.push(swelling(
+            [1.0; 3],
+            false,
+            vec![SwellTerm::Wind {
+                amount: crate::pds::types::Fp(0.1),
+            }],
+        ));
+        arm.children.push(cap);
+        body.children.push(arm);
+        assert!(accumulated_scale(&body) > 2.0, "a body that does swell");
+        let before = serde_json::to_string(&body).expect("serialise");
+        sanitize_avatar_visuals(&mut body);
+        assert_eq!(serde_json::to_string(&body).expect("serialise"), before);
     }
 }

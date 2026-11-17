@@ -136,9 +136,11 @@ pub(super) fn draw_spin_section(
     );
 }
 
-/// A direction row - the spin's axis, a vane's downwind side: X, Y or Z of
-/// the node's own frame, the other way round, or any direction typed in.
-fn draw_direction(
+/// A direction row - the spin's axis, a vane's downwind side, a slide's
+/// axis (`super::slide`): X, Y or Z of the node's own frame, the other way
+/// round, or any direction typed in - written on the wire's grid, as a peer
+/// reads it back.
+pub(super) fn draw_direction(
     ui: &mut egui::Ui,
     label: &str,
     flip_help: &str,
@@ -172,12 +174,20 @@ fn draw_direction(
             ui.horizontal(|ui| {
                 for c in v.iter_mut() {
                     changed |= ui
-                        .add(crate::ui::num::drag(c).speed(0.01).range(-1.0..=1.0))
+                        .add(
+                            crate::ui::num::drag(c)
+                                .speed(0.01)
+                                .range(-1.0..=1.0)
+                                .max_decimals(super::light::GRID_DECIMALS),
+                        )
                         .changed();
                 }
             });
-            if changed {
-                *axis = Fp3(v);
+            // A focus that leaves a box writes back what it showed, which is
+            // the value it held: unchanged on the grid, nothing is written.
+            let asked = Fp3(v).on_wire();
+            if changed && asked != *axis {
+                *axis = asked;
                 *dirty = true;
             }
             ui.label(

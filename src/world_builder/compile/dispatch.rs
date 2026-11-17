@@ -150,11 +150,11 @@ pub fn spawn_generator(
     // box lands in the copy's frame however deep it hangs (#1480). Around
     // the whole node rather than inside it: the node's arms return early.
     let saved = ctx.copy.enter_node(&transform);
-    // A node that turns takes everything below it out of the physics
-    // (#1604) - restored here, on the way back up, rather than in the node,
-    // for the same reason.
+    // A node that turns, slides or swells takes everything below it out of
+    // the physics (#1604, #1935) - restored here, on the way back up, rather
+    // than in the node, for the same reason.
     let spinning = ctx.spinning;
-    ctx.spinning |= generator.moving_spin().is_some();
+    ctx.spinning |= generator.animates();
     let entity = spawn_node(ctx, generator, base_ref, path, transform, parent);
     ctx.spinning = spinning;
     ctx.copy.leave_node(saved);
@@ -407,11 +407,11 @@ fn spawn_node(
                     path: path.to_vec(),
                 });
         }
-        // A node that turns (#1604) carries its spinner, which composes the
-        // turn onto `transform` - the pose it is spawned at - every frame.
-        if let Some(spin) = generator.moving_spin()
-            && let Some(spinner) =
-                crate::world_builder::spin::Spinner::new(spin, transform, ctx.spin_epoch)
+        // A node that turns (#1604), slides or swells (#1935) carries its
+        // spinner, which composes all three onto `transform` - the pose it is
+        // spawned at - every frame.
+        if let Some(spinner) =
+            crate::world_builder::spin::Spinner::of_node(generator, transform, ctx.spin_epoch)
         {
             ctx.commands.entity(e).insert(spinner);
         }
@@ -547,7 +547,8 @@ fn spawn_primitive_entity(
     // `get_and_touch` also marks the key reachable for this pass, on hit and
     // miss alike, which is what the end-of-job GC retains against (#919).
     let cached = get_and_touch(ctx.prim_mesh_cache, ctx.prim_mesh_touched, mesh_key);
-    // Nor on a part that turns, or hangs below one (#1604).
+    // Nor on a part that turns, slides or swells, or hangs below one (#1604,
+    // #1935).
     let needs_collider = solid && !ctx.avatar_mode && !ctx.spinning;
     let (groups, collider) = match cached {
         // Avatar mode strips colliders unconditionally - the locomotion

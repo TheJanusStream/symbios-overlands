@@ -50,8 +50,9 @@ const AIMS: [(&str, [f32; 3]); 6] = [
 
 /// Decimals a number field shows at most: the wire's 1/10 000 grid, so a
 /// value on it is shown whole and a field that loses focus writes back the
-/// value it showed, not a rounded one.
-const GRID_DECIMALS: usize = 4;
+/// value it showed, not a rounded one. The Slide and Swell sections' fields
+/// show as many (`super::slide::grid_number`).
+pub(super) const GRID_DECIMALS: usize = 4;
 
 /// Draw the Light section for one node. `refusal` is why a light on this
 /// node draws nowhere, where it does not (see
