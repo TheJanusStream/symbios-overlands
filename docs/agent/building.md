@@ -149,6 +149,38 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   see-through but alpha cards (#1927, the owner's rule). An instance set's
   copies draw no light (nor sound nor turn): a lamp meant to light stands in
   a placement of its own (Kairos's yard masts, live 22).
+- **A face of a primitive can wear its own material** (#955) - the owner's
+  way to end a log, not an extra part (live session 23): `"faces": [{"face":
+  {"$type": "network.symbios.face.top"}, "material": {...}}, ...]` on the
+  primitive; a cylinder's faces are `.wall`, `.top` (+Y) and `.bottom`. The
+  face's material is whole, not a change to the prim's. Hypha's mossy logs
+  wear the `LogEnd` texture (an alpha card: one round slice of pith, rings
+  and bark rim, clear outside an outline 0.85-0.95 of the way to its edges)
+  on both caps of their Bark-walled body. A cylinder's cap carries metre UVs
+  from -r to +r about its middle, and a material maps them as `uv_scale` x
+  (p + `uv_offset`), so `uv_offset` [5000, 5000] (0.5 m) at `uv_scale` 1
+  puts the slice's middle on the cap's and its rim (r = 0.42 m) inside the
+  slice: no hole. On a plane instead (the catalogue's woodpile), a card is
+  one more drawn part.
+- **A material's default base colour is an orange brown** (0.6, 0.4, 0.2),
+  and the base colour multiplies the texture: a textured material left
+  without `base_color` came out dark red, near black in shade (Hypha's log
+  ends, live 23). Write `"base_color": [10000, 10000, 10000]` when the
+  texture's own (linear) colours should show, as the Bark and Lichen
+  materials in the Understory do.
+- **The seams on a rounded box's edges are Box mapping's own.** A
+  superellipsoid, a cuboid, a bevel, a wedge or a BlobGroup with no
+  `uv_mapping` is already `Box` (tri-planar): each triangle takes the axis
+  its normal leans into most, so a patterned texture jumps along a rounded
+  edge where the axis changes. The owner asked to switch the Lichen Tors'
+  stones "to Box" to lose those seams (live session 23); they were Box.
+  `Spherical` ran over the edges without a seam but smeared the stones'
+  flat tops ("Box is better"), and `Fit` laid a few flat bands across each
+  stone. Check what a part resolves to before changing it: a revolved
+  prim's default is `Fit`, the flat family's `Box`.
+- **A `plane` needs its `subdivisions`** (0 for a plain quad): written
+  without it, the room record fails to parse whole - the render tool
+  panicked on `missing field subdivisions` for a generator with one card.
 - **A part can turn** (#1604): `"spin": {"axis": [0, 0, 10000], "terms":
   [...]}` on any node but terrain, water or a road network. Every visitor's
   client turns the node, and everything below it, about `axis` - a direction

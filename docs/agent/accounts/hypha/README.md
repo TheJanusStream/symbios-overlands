@@ -13,7 +13,13 @@ to highlights, set the spore plume and the Spore Spires rocking slowly, and
 gave the hollow passing rain showers and a turning day, all saved. In live
 session 18 (chainlink 997, 2026-11-04, #1848) it put its airship and the
 Understory in its inventory, saved it, and gave both to the owner: the first
-test of whole gifts (#1844). Its world and body did not change.
+test of whole gifts (#1844). Its world and body did not change. In live
+session 23 (chainlink 1025, 2026-11-17, #1932) it worked light sources into
+the Understory and its body at the owner's word - 66 lights on glowing
+parts, 102 drawn across placements and 4 on the body, each in its glow's
+colour with a slow pulse, lit from dusk to dawn - and at his asks in chat
+box-mapped its cap and gave the mossy logs end grain on their own faces;
+all saved ("they look great. good work").
 
 ## Start here
 
@@ -26,13 +32,24 @@ session.
 | Commands | every agent command takes `--account hypha-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=hypha-ai.bsky.social` ([session.md](../../session.md#starting)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | the Understory, Hypha's own world: the world of its DID, which `render --world` takes |
-| Working folder | `exports/hypha/` (gitignored, on this machine only), kept across sessions: `src/room.json` and `src/avatar.json` are the last saves (room copied from `948/src/`, saved 2026-10-19 10:23 local, seq 13 of that run; avatar from `878/src/`, 2026-09-26 08:37), `log.md` the save log; the inventory holds `Hypha's airship` and `The Understory`, saved 2026-11-04 21:01 local (seq 2 of session 997's run); `A` is the agent wrapper ([session.md](../../session.md#starting), step 5). The numbered subfolders `873/`, `874/`, `876/`, `877/`, `878/` and `948/` are those sessions' scratchpads: read them, build nothing in them |
-| Last session | chainlink session 997 (live session 18), parent #1848: the gift test, no world or avatar change. The last that built: 948 (live session 13), parent #1712 - read its comments (`chainlink show 1712`); the one before, 878 (live 6, #1474), holds the last ranked review; `chainlink session last-handoff` is the latest session of any kind |
+| Working folder | `exports/hypha/` (gitignored, on this machine only), kept across sessions: `src/room.json` and `src/avatar.json` are the last saves, pulled by `rec.py save` (the room 2026-11-17 21:05 local, seq 15 of session 1025's daemon: the outer places' lights; the avatar 2026-11-17 20:58, seq 14: its lights), `log.md` the save log; the inventory holds `Hypha's airship` (the body as it was BEFORE 1025: no lights, the old cap mapping) and `The Understory` (before 1025 too), saved 2026-11-04 21:01 local (seq 2 of session 997's run); `A` is the agent wrapper ([session.md](../../session.md#starting), step 5). The numbered subfolders `873/` to `948/` and `1025/` are those sessions' scratchpads: read them, build nothing in them - but `1025/b/lights.py` (every light) and `1025/b/log_ends.py` re-run over the saved record, each keeping what it made before |
+| Last session | chainlink session 1025 (live session 23), parent #1932: light sources in the region and the body, the cap box-mapped, the log ends - read its comments (`chainlink show 1932`); before it 997 (live 18, #1848, the gift test) and 948 (live 13, #1712, the grass, weather and day); 878 (live 6, #1474) holds the last ranked review; `chainlink session last-handoff` is the latest session of any kind |
 | Default mode | [self-guided](../../session.md#self-guided), as in 878; 873-877 and 948 took tasks in chat |
 | Never | touch Reeve's world (Ashmere) or his avatar ([his page](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([its page](../jink/README.md)), Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)), Catoid's world or avatar ([catoid/](../catoid/README.md)), or Kairos's world or avatar ([kairos/](../kairos/README.md)); close a live session's parent before the owner has committed its work |
 
 - No live retry of Hypha's own is pending. What waits on the owner (browser
   tests) is in [Open threads](#open-threads): not yours to close.
+- **Lights since 1025** ([Light](#light)): every one sits on a part that
+  already glows, in that part's colour, and `1025/b/lights.py` holds them
+  all - change a light there and re-run it over the saved record, never by
+  hand in the record. Judge a light at night (`views.py --hour 23 --weather
+  overcast:0`), and read [region.md](../../region.md)'s "Lighting a world's
+  own glow" first: brightness 1 does not show under the moon, an offset is
+  held to 50 m, a light near water glints.
+- **The inventory is older than the body and the world**: `Hypha's airship`
+  and `The Understory` there have no lights. A `stash-avatar` under that name
+  adds a second item rather than replacing it: ask the owner before
+  refreshing either.
 - The day turns since 948 (two real hours) and showers come and go: a render
   without `--hour` and `--weather` draws whatever the clock says - night, or
   rain. Judge a change with `--hour 12` and, for the ground, a dry render;
@@ -94,7 +111,16 @@ turned the network's green in 877; a glowing root fan added in 878.
   ([avatar.md](../../avatar.md#a-workbench-on-the-body)): proven live in 876.
 - **Numbers that matter**: the lowest point is -0.715 m; whatever lies at the
   base stays above it by its own radius, or it cuts the ground when landed.
-  38,064 triangles; 65 KB of the record's 100 KiB (2026-09-26).
+  38,064 triangles; 65,576 B of the record's 102,400 (2026-11-17, with the
+  lights).
+- **Light** (1025): four green lights with slow pulses, drawn together as
+  one unit (#1925): one at the stem's foot among the root fan's cords
+  (on child 169, offset 0.45 m down: 4 at 4 m), lighting the ground round
+  it when landed, and one at each foxfire tip of the trailing threads
+  (159: 4 at 2.5 m; 160 and 161: 3 at 2 m).
+- **The cap's Lichen is box-mapped** (1025, the owner's ask: "less distorted"):
+  `uv_mapping` Box on child 1, the lathe's own mapping (Fit) had swirled the
+  texture round it; `uv_scale` 2 kept.
 - **Offline**, from a pulled avatar or `878/src/avatar.json`
   ([avatar.md](../../avatar.md#seeing-it-before-anyone-else-does)):
 
@@ -194,7 +220,7 @@ middle of a place of several parts; "Built" is the chainlink session.
 | Mycelial web | 25, 80 | glowing threads on land round the pool, linking the ring, the Mother Tree and the Old Snag | 874 |
 | Mother Tree | 80, 70 | the east shore: a hand-built trunk with buttress roots, glowing threads and bracket fungi in tiers; its crown a copy of the forest's own broadleaf L-system with older limbs | 874; brackets 876 |
 | Old Snag | 12, 152 | the pool's south end: a hollow dead giant; shelf fungi spiral up to a lookout at 15.7 m, glowing green beneath | 874; glow 878 |
-| Mossy logs | -45, 30; 30, 145; 10, -10; -20, -5 | fallen logs with honey caps, bootlaces and a glow in their broken ends; foxfire clusters beside three of them | 873 |
+| Mossy logs | -45, 30; 30, 145; 10, -10; -20, -5 | fallen logs with honey caps and bootlaces, weathered end grain on both cut ends (a `LogEnd` face on each cap of the log body since 1025 - the glowing end disc, which read as flat green, is gone); foxfire clusters beside three of them | 873; ends 1025 |
 | Spore Spires | -222, 55 | the west plateau, green: giant glowing Mycena over the treeline; the five giants (28-58 m) rock in the wind's plane, each under a degree at its own pace (a `.wobble`, 9.5-13 s), each stem cut at its second point so its foot keeps a collider | 876; rocking 948 |
 | Ghost Grove | 130, -165 | a rise to the north, pale mint: a 34 m bleached tree with glowing tiers of ghost fungus and a halo of motes, six ghost snags | 876 |
 | Drowned Wood | about 180, -440 | the north lake's shallows: ten ghost snags standing in 0.3-3.5 m of water, reeds, lilies, motes | 876 |
@@ -215,6 +241,35 @@ slide-guitar theme and its bass removed, a pool drip added - a sine "plip"
 through reverb, ten at uneven moments in each 34-beat loop (60 bpm). Sound,
 like light, is Hypha's to change and save since 2026-10-19 (#1716): say in
 chat what changed.
+
+### Light
+
+Since 1025 the glow lights what stands round it after dark: 66 lights on
+glowing parts, 102 drawn across placements, all lit from dusk to dawn with a
+slow pulse (a 14 s breath on caps and tiers, a 9 s one on threads), each in
+its part's emission colour. All in `1025/b/lights.py`, which also prints
+where each one lands.
+
+- **Round the landing** (green): each of the ten foxfire clusters' big cap
+  (6 at 4.5 m); the gateway's top thread (8 at 8 m: the stems and the caps'
+  undersides glow); the fairy ring where its seven threads meet (4 at 6.5 m,
+  1.2 m up: the honey tufts lit warm); the Mother Tree's buttress threads
+  (2); four Old Snag shelves up the spiral and a lookout lantern; the web
+  round the pool, one light a metre over a small glowing knot at each of its
+  eleven threads' middles (4.5 at 5 m) - the knots carry them because a
+  light hangs at most 50 m from its node.
+- **The outer places**, each its own colour: the Great Ring's thirteen honey
+  clumps and the mother clump (amber, raking down the stems: the best of
+  them), three points of its rhizomorph circle (green); the Ghost Grove's
+  tree (three tiers) and all sixteen ghost snags, the ten drowned ones too
+  (mint, 5.2 m up with a 0.6 m source, as a lower or smaller one glinted
+  hard on the lake); the Puffball plume's mouth (gold, 12 m); four each in
+  the Spore Spires, the Windthrow and the Lichen Tors; six along the Indigo
+  Shallows (blue, half a metre or more over the water).
+- **The arrival fans**, where the threads fork into filaments at a place,
+  lit at six places (coral pink, puffball gold, windthrow violet, spires
+  green, tors scarlet, indigo blue), one to three lights a metre over them:
+  a place's own glow may face away from where visitors come in.
 
 ### Budget
 
@@ -243,6 +298,12 @@ they are drawn by the graphics card round each visitor. An older client keeps
 #1472's ceiling: keep copies x cards of one swaying generator under 65,535
 ([region.md](../../region.md#planting-scatters)). Measure before you compare.
 
+On 2026-11-17 after 1025's saves (`1025/tri-saved.txt`): 14,365,092
+triangles and 21,812 parts - the lights' eleven knots and the log ends left
+both where they stood. The world's live sync weighs 825,795 of 921,600 B
+(811,514 before the lights). It holds 102 room lights; a visitor's client
+draws the nearest 64 at Effects Full, 32 at Reduced.
+
 ## Standing decisions
 
 The owner's; do not ask again.
@@ -267,6 +328,9 @@ The owner's; do not ask again.
 | 2026-10-19 | #1712 | **Day and night**: "I think day and night cycles would be great as well" - a two-hour day, saved at his word ("Please go ahead and save it already") |
 | 2026-10-19 | #1712 | **Rain showers, the atmosphere as Hypha sees fit, saved without waiting** - said in chat as he logged out of live 13: "Please go ahead and save whenever you consider a change to your region to be an improvement. Don't wait for my approval." |
 | 2026-10-19 | #1716 | **Hypha's region and body are Hypha's to change and save, without asking**, in the terminal after live 13: "Hypha is freely allowed to change and save their region without asking" and "Hypha is also allowed to change and save their avatar as they see fit, without asking". Light, sky, weather, the day and sound included: no more mood trials held out of saves. Say in chat what changed |
+| 2026-11-17 | #1932 | **Light sources in the region and the body**, in the terminal: "work in light effects into their region and avatar designs" |
+| 2026-11-17 | #1932 | **A look on a part's own faces, not extra parts**: of the end cards first given to the logs, "Please remove the extra parts and solve it by having the extra faces on the log itself" - a face override (#955) |
+| 2026-11-17 | #1932 | **Box mapping stays on the stones**: the tors' superellipsoids were Box already; a Spherical trial smeared their tops - "Box is better", the edge seams accepted ("It is ok") |
 
 ## Working material
 
@@ -301,6 +365,24 @@ generator JSON, records, save logs, edit files, renders.
 ## History
 
 Newest first. "Live" is the owner's series across all accounts.
+
+**1025 - 2026-11-17, live 23, #1932, a task from the terminal and asks in
+chat.** "Log in Hypha to their region ... to work in light effects into
+their region and avatar designs"; the owner was in the world from the
+start. Chat asks first: the cap box-mapped (saved 20:33, after one save
+failed on a passing network error); the mossy logs' flat-green ends as end
+grain - two plane cards (20:51), then, at his word, faces on the log itself
+(20:57); the tors' seams, already Box's own, left so after a Spherical
+trial he judged worse. Lights by one builder (`1025/b/lights.py`), each
+step judged in night renders: round the landing (20:57), the body (20:58),
+the outer places and the arrival fans (21:05) - 66 on nodes, 102 drawn, 4
+on the body. The owner at dusk: "they look great. good work". Failed at
+first: lights at brightness 1 invisible under the moon; 8 of the web's 11
+lights moved by the 50 m offset clamp (knots carry them); hard glints from
+lights just over water; a card without `subdivisions` broke the whole
+record's parse offline; end grain near black under the default orange base
+colour and with its card facing into the log; the Puffball plume's light
+reaching only the puffball's top (the arrival fans lit instead).
 
 **997 - 2026-11-04, live 18, #1848, chat task.** The owner signed it in
 again (the saved sign-in predated world parts, #1839) to test gifts of
@@ -408,3 +490,10 @@ Shipped #1442 and #1444-#1447; filed #1448 and #1449.
   after dark - the Ghost Grove's mint, the Lichen Tors' scarlet, the Indigo
   Shallows' blue - and look for a glow that drowns its place or one that
   goes missing.
+- **The lights at full night** (1025 judged them in offline renders, and
+  live only at early dusk): from where visitors walk up, the Spore Spires'
+  and the Windthrow's were faint, the web's subtle beside its bright
+  threads, and the Indigo Shallows' and the Spires' fan lights were never
+  in a view that showed them. Walk each at world 22:00-04:00 (real time:
+  the two-hour day's `hour_at`, `src/time_of_day.rs`) and raise or move
+  what reads too little; `1025/b/lights.py` holds every value.

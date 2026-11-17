@@ -31,6 +31,13 @@
   it again, and the save writes whatever the account does not already hold
   (#1845). An avatar save took about 2 s live. Confirm afterwards
   that `unsaved` is empty, and tell the admin it is kept for every visitor.
+- **A save can fail on a passing network error before it writes.** Live
+  session 23's first avatar save answered `save_failed` with `existence
+  check (network.symbios.avatar.profile/self): error sending request for
+  url (...)` - the game's read of the record before writing it never got
+  an answer, and nothing was written (`rec.py save` pulled and logged
+  nothing); the same save run again at once passed. Run it once more before
+  telling anyone a save failed.
 - When you report a build, say it is unsaved ("say 'save' to keep it") so
   the admin knows a choice is theirs.
 

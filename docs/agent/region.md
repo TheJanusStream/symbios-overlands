@@ -1219,6 +1219,31 @@ A forest is a few generators and a scatter placement each:
   theirs ([avatar.md](avatar.md)). A light
   adds 10 bytes to a record (`{}`), at most about 330 with everything
   set.
+- **Lighting a world's own glow** (Hypha's Understory, live session 23:
+  `exports/hypha/1025/b/lights.py` puts 66 lights on glowing nodes, 102
+  drawn across placements, each in its part's emission colour with a slow
+  pulse). What the night renders (`views.py --hour 23 --weather
+  overcast:0`) showed:
+  - **Brightness 1 is lost under the moon.** At 0.6-1.2 only a gateway's
+    stems picked up any colour; pools read at 4-8 (the cap at a reach of
+    4-8 m is 32). A light in a part a metre from the grass draws a hot
+    spot on the blades under it: lift it about a metre and it pools.
+  - **A light hangs at most 50 m from its node on each axis** (the
+    sanitiser clamps, and `rec.py apply` names each clamped `offset` in
+    `adjusted_at`). A thread's middle can lie farther from its generator's
+    origin: hang the light on a small glowing knot of its own (a sphere
+    child at the point, the thread's material) - 8 of the web's 11 lights
+    had moved off their threads.
+  - **A light within half a metre of water draws a hard white glint** on
+    it: raise it and give it a bigger `size` (0.5-0.6 m softened it).
+  - **A place's glow may face away from its visitors** - the Windthrow's
+    web in its root plate, the Puffball Meadow's on top of the plume, where
+    the sides people see get nothing. The fans of glowing filaments where
+    the threads arrive (`tools/fan.py`) lit, one to three lights a metre
+    over them, pool the place's colour where visitors come in.
+  - A scatter's copies each carry its light (only an instance set strips
+    them): keep lights off a scatter of hundreds. One on a generator placed
+    ten times is ten lights (the Understory's foxfire clusters).
 - **A texture on a twisted or tapered part (`torture`) shears with the
   deform**: a curtain-wall grid laid on one twisted box read "crooked" to
   the owner. Build a twist from straight pieces instead - one box a floor,
