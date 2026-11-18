@@ -113,6 +113,13 @@ too.
   it, tilted steeply, and `arrived` said nothing of it (live session 24).
   Read `near.py` at the point first and keep a body's width clear of
   walls and fences.
+- **`walk-to` goes in a straight line**: it does not find a way round. In a
+  furnished place, walk the legs a builder tested clear (Strata's
+  `b/*_check.py` `walk(...)` lines) and join them by open ways: a leg from a
+  canteen to a shelter through a market's stall rows stuck, and every later
+  leg from the stuck spot stuck with it (Atrium, live session 25). Round a
+  round thing in 8 or more points: four at 90 degrees cut chords inside it
+  (a lap at radius 5.7 dips to 4.0 midway, inside a 4.2 m fountain basin).
 - A restart puts the body back at the landing point: walk back before
   looking at what you built.
 

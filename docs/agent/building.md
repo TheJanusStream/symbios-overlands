@@ -85,7 +85,14 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   radius: a sphere becomes a shell), `profile_cut` `[begin, end]` (a sphere's
   latitude band: `[5000, 10000]` a dome, `[7500, 10000]` a shallow cap - a
   dish), `path_cut`, `taper`, `bend`, `twist`. Read `TortureParams` in
-  `src/pds/generator.rs` for the rest.
+  `src/pds/generator.rs` for the rest. `shear` `[x, z]` slides the part's
+  top (its +Y face) along its own X and Z in metres, linearly with its own
+  Y, at most 10 m: turned so its own Y runs along a ramp and its own Z
+  points up, a cuboid sheared `[0, rise]` is a rail, a stringer or a ramp
+  whose ends stand vertical, where a tilted cuboid's ends lean with the
+  slope and leave wedges at every joint (Strata's ramp rails, the owner's
+  idea, live session 25). A tortured part collides as the convex hull of
+  its deformed mesh, so a sheared box's collider follows it exactly.
 - **Children are placed relative to their parent's centre**, turned by the
   parent's rotation; the parent's `size` does not scale them, but its
   `transform.scale` does - a flattened root flattened a whole log into its
@@ -180,6 +187,17 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   flat tops ("Box is better"), and `Fit` laid a few flat bands across each
   stone. Check what a part resolves to before changing it: a revolved
   prim's default is `Fit`, the flat family's `Box`.
+- **Box mapping counts each face from its own part's middle**, so two
+  parts side by side start their patterns in different places: on the +Z
+  face u = x, v = -y, on the -Z face u = -x, v = -y (x, y from the part's
+  middle), then `uv_scale` x (uv + `uv_offset`). A gate's lintel centred
+  4 m higher than the wall panels beside it showed its concrete bands half
+  a tile out of step, a seam on three sides (the owner, live session 25).
+  To run a piece's texture on from a whole panel's, give it `uv_offset`
+  `[xc, yp - yc]` (its middle at (xc, yc), the panel's at (0, yp)) and its
+  -Z face, whose u runs the other way, a `side_nz` face override with
+  `[-xc, yp - yc]` (Strata's `exports/atrium/b/shell_walls.py`
+  `wall_parts`).
 - **A `plane` needs its `subdivisions`** (0 for a plain quad): written
   without it, the room record fails to parse whole - the render tool
   panicked on `missing field subdivisions` for a generator with one card.
@@ -303,6 +321,27 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   on a sliding part moves with it: a lamp on a bobbing buoy bobs. The World
   Editor's Slide and Swell sections, under Spin on every part, set all of
   it, writing values already on the wire's grid.
+- **Values the sanitiser clamps, not wraps** (each said only as an
+  `adjusted_at`; Atrium's Strata, live session 25):
+  - a spin, slide or swell `phase` over 360 becomes 360, the same as 0: the
+    Works' 450 and 540 put staggered arms in step until set to 90 and 180.
+    Write phases in 0..360.
+  - a spin's constant `rate` is held to 1440 deg/s either way
+    (`MAX_SPIN_RATE_DEG`): Atrium's drone props written at 1800 came back
+    at 1440. Four turns a second already blurs a prop at 60 frames.
+  - every primitive dimension, a world's as a body's, is held to at least
+    1 cm: the Sump's 8 mm cable radii came back as 10 mm.
+  - a BlobGroup ELEMENT's position is held within 100 m of its group's
+    origin: two seedling rows written in world coordinates (z 157-161) under
+    a group moved back by its own transform were pulled to z 100 and met,
+    a z-fighting pair. Stand the group where its elements are and keep them
+    as offsets.
+  - `hollow` stops at 0.95, and a water node takes no `solid` (dropped as
+    ignored, harmlessly).
+- **Width for a walking body**: a person's capsule (radius about 0.2 m) drifts
+  off a straight line as it walks; a 1.3 m lane past a conveyor's end, clear
+  to a line check, stopped the live walk (Strata's Works). Keep 2 m or more
+  on any way people should use, and check walks as a corridor, not a line.
 - **A generator nests at most 16 levels** (`MAX_GENERATOR_DEPTH`,
   src/pds/sanitize/limits.rs); the sanitiser drops what lies deeper and says
   so only as an `adjusted_at` ending in `/children`. A chain of animated

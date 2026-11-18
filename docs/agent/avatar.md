@@ -253,6 +253,31 @@ wrong and the offsets need tuning".
   cut, root and tip colours, and a skin layer (stubble); a chin and flank
   skin density of 0.8/0.7 darkened the whole lower face, 0.52/0.26 read as
   a close shave.
+- **An outfit's colour is on the avatar's 1000 scale and multiplies its
+  texture** (symbios-avatar `dress/cloth.rs`): written on the record's
+  10,000 scale it is clamped to white; a white colour lets a Fabric weave's
+  own colours show, the way Atrium's teal twill does (live session 25). The
+  outfit is close-fitting only - a top's `length` is its sleeve, a
+  trousers' its leg - and has no coat or skirt.
+- **A worn thing that orbits the head**: Atrium's survey drone is a hub
+  hidden inside the head turning about +Y, the drone 0.42 m out on it; a
+  hub over the crown showed as a speck. The `crown` socket sits at the
+  FRONT of the head's top, its middle about 9.5 cm behind: centre the hub
+  there, or the orbit runs off-centre. A flight that reads (live session
+  25, `exports/atrium/b/drone2.py`, after the owner called the first,
+  one-speed ring "could be much better") puts each motion on a node of
+  its own, every frame a 1 cm cube with no material hidden in the head or
+  the hull: the hub's turn with a wobble (a pace that wanders), a radial
+  slide whose period is no divisor of the lap (a path that precesses), a
+  vertical slide, a yaw swing of the radial slide's period that keeps the
+  nose on the path, a bank toward the head with a swing of that period
+  (steeper as the orbit closes), and a nose-down pitch. Its rest pose is
+  what Effects Off shows - Off stills the turn too - so make it a pose
+  (Atrium's hovers off the right shoulder). Prove the nose and the bank's
+  sign from renders, never from reasoning: frames a quarter lap apart from
+  overhead, and from behind. Sweep its clearance with the motion sampler
+  (`exports/kairos/b/motion_sim.py`) against boxes measured on the body,
+  walking and running too.
 - **The engine dresses a body in a top and trousers only.** Anything else
   is a worn item, and a worn item's own record is editable: stash a
   catalogue wearable (each stash is named anew - `Traveler's Satchel_1`,

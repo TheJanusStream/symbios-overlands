@@ -238,6 +238,11 @@ owner gives tasks in chat.
 - Concept and research first, on the parent before building: the name, the
   site plan, the places a visitor walks between, what they see first at the
   landing and what draws them onward. Mark what you are unsure of.
+- Give the world its name and banner (`/identity`, [region.md](region.md),
+  "A name and a banner") when the concept fixes them: clearing a seeded
+  world keeps the seed's, and the name is the first line every visitor
+  reads. Atrium's Strata greeted its visitors as "Lyra Outpost" through its
+  whole first build (live session 25).
 - Build from scratch: clear the seeded world ([region.md](region.md),
   "Clearing a seeded world"), the land first (`--terrain-report
   --seed-scan`), then in the order a visitor would notice, the body

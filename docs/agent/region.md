@@ -187,6 +187,13 @@ streams out. A tarn on the hill above that mere is a second water child,
 set where the hollow is and as high as it should fill
 ([a sea, and lakes over it](#the-land-is-a-recipe-not-a-sculpt)).
 
+**A dead flat world** (Atrium's Strata, live session 25): the mesa recipe
+below with `voronoi_num_terraces` 1 puts every cell on the floor - ground
+0.0 everywhere - for a building that covers most of the map; drop the sea
+under it (-5 m). Two terraces at 6, 10, 14 and 50 cells never left a 400 m
+single-level centre in 36-48 seeds (`exports/atrium/b/landscan.py` samples a
+square every 25 m with `--terrain-report --at`).
+
 **Mesa country** (Jink's Parabola Flats, session 893): `VoronoiTerracing`
 with `voronoi_num_terraces` 2 and `voronoi_num_seeds` 50 lays big flat cells
 at two levels - a floor at 0 and tabletop mesas at half the `height_scale` -
@@ -706,7 +713,11 @@ cross, saltire, tower, tree, peaks, waves}`, each written as
 `{"$type": "..."}`. The mark is drawn in the other colour of wherever it
 lies: on a plain field the second colour, on a divided one changing
 across the line. A world without `/identity` has neither, and is shown as
-its owner's.
+its owner's. Clearing a seeded world keeps its seeded name and banner: set
+`/identity` once the world is your own (Atrium's Strata kept the seed's
+"Lyra Outpost" through its first build, live session 25). A standard moved
+for the arrival needs the arrival camera's own frame (`render --world ...
+--focus arrival`): Strata's, 8 m past its monument, stood wholly behind it.
 
 A world seeded on its own ground has both, drawn from its seed: a place
 name of its kind - a descriptor of its land or its theme joined to a
@@ -2280,7 +2291,22 @@ screen's slow orbit, or the last world, had left the camera. The Understory's ga
 arrival looked through its pillars and translucent veil, and a taller body's
 camera sat under its caps; five sessions of reviews from eye height missed
 it (session 878). `tools/views.py ... "@landingcam"` renders that first
-picture from the record.
+picture from the record - but always looking 20 degrees down, whatever the
+landing's `pitch_deg`; the game's own arrival frame, pitch and terrain clamp
+included, is `render --world <did> --world-record R --focus arrival`.
+
+**A negative `pitch_deg` looks up, and moves the camera.** The landing's
+pitch runs from -17 (up) to the orbit's 88 (down). Looking up sets the
+orbit camera down near the ground, and the terrain clamp brings it closer
+to the body, so what stands a few metres ahead leaves its frame: Strata's
+first frame (Atrium, live session 25) showed its portal and monument at
+pitch 0 with only the Crown's spire's saucer over the Sump's wall; at -3 to
+-10 the spire stood whole, but the portal and monument, 4-11 m ahead, were
+gone. Moved 20-28 m ahead, either side of the view, they flank the gate at
+pitch -4 under the whole spire. A stepped building's setbacks hide its upper
+tiers from any arrival on the ground (Strata's 60 m setbacks, from 50 to
+200 m out): its silhouette comes from one tall mark that clears the front
+wall's sight line.
 
 **Mock the massing before building.** Before anything was authored, plain
 boxes where each building would stand (a church, cottages, a hall, a barn, a
