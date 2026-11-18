@@ -108,7 +108,11 @@ too.
   came down on the spire cluster and its eye-level `look` saw only the tops
   of the stalks (session 878). To look AT a landmark, pick open ground
   beside it - `--terrain-report --at` says what is there - and check
-  `status.position`'s height after landing.
+  `status.position`'s height after landing. A wall's top edge is a
+  landing too: sent beside a shipyard's hoarding, Kairos set down half on
+  it, tilted steeply, and `arrived` said nothing of it (live session 24).
+  Read `near.py` at the point first and keep a body's width clear of
+  walls and fences.
 - A restart puts the body back at the landing point: walk back before
   looking at what you built.
 

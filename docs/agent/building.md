@@ -265,7 +265,34 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   is the cable's top, swelling `"weights": [0, 10000, 0]` with the hook's
   period and phase and an amount of the hook's swing over the cable's
   length, so the cable's end rides on the hook (`render --catalogue
-  gantry_crane --dump` prints it).
+  gantry_crane --dump` prints it). A cable centred on its own node needs no
+  reel: slide it with the hook's term at half the hook's travel and swell it
+  along its length by the travel over its length, at the same period and
+  phase, and its top stays under the trolley while its foot rides the hook
+  (Kairos's plate crane, tower cranes, gantries and body, live session 24,
+  `exports/kairos/b/motion.py`).
+- **Moving parts that read** (Kairos's workshop, yard and body, live
+  session 24):
+  - A hook over a working area travels UP from where it hung: raise its
+    place by the amplitude, swing about it and shorten the cable by as
+    much, so its lowest point is where it was - a build on Kairos's plate
+    never meets it. A `bounce` would hop like a ball.
+  - A gate on a slide is no gate. Its leaf never collides, and a `bounce`
+    lingers at the top of its hop, so leaves parked open at their place
+    stood shut across the yard's roads 59 % of each cycle while visitors
+    walked through them. Leave gates still.
+  - A long glowing plume reads as a solid spike, as nothing here is
+    see-through but alpha cards: 7.4 m exhaust cones at emission 5 came out
+    as white ice-cream cones. A short saturated core in the nozzle's ring
+    (2.7 m, emission 2) reads as an engine firing; swell it along its
+    thrust axis (weights 0.2, 1, 0.2) with a quick wobble for the flutter.
+  - A slide's axis is in the node's frame after its rotation: a part stood
+    up a quarter turn (a hook ring, a drum) slides sideways along a
+    parent-frame direction written as it is. Turn the direction by the
+    inverse of the node's rotation first.
+  - A belt's rest place hidden inside an infeed box (both ends of the run
+    in boxes) keeps its coincident crates out of the z-fighting check and
+    out of sight; under Effects Off the belt then stands empty.
 - **A slide and a swell are for looking at**, as a spin is: a sliding or
   swelling part and everything under it has no solid collider, both stand
   still while the World Editor has a selection, and an instance set's

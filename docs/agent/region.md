@@ -798,10 +798,15 @@ Cross-theme, Monument). In the World Editor: Environment, Name and banner.
   and never above noon's; the hour says whether the disc is the sun or the
   moon, so a low red sun is drawn as the sun however dim it is. With
   `day_minutes` above 0 the day turns with the clock: a whole day takes
-  that many real minutes (1440 is a real day; a minute at least, as a
-  shorter day would flash the room between day and night, and a week at
-  most), every visitor sees the same hour as nearly as their clocks agree,
-  and `hour` is the hour at the turn of the clock's day (UTC, from 1970).
+  that many real minutes, scaled like `hour` (600000 is a day an hour long,
+  14400000 a real day; a minute, 10000, at least, as a shorter day would
+  flash the room between day and night, and a week at most), every visitor
+  sees the same hour as nearly as their clocks agree, and `hour` is the
+  hour at the turn of the clock's day (UTC, from 1970: with a 60-minute day
+  that is every hour on the hour, so to keep the hour a visitor sees now,
+  take the share of the clock's day gone from it). Written unscaled, an
+  hour's 60 is raised to the one-minute floor with only an `adjusted_at`,
+  and the world flashes through a day a minute (Kairos, live session 24).
   Without the key - the default - the room is drawn as its fields set it,
   whatever the time. Render an hour with `render --world <did> --hour 18`
   (without `--hour`, a turning day renders at the hour it is now); noon's

@@ -27,6 +27,10 @@ name tags, no chat) - `A ui show <window> --picture` draws that.
 
 - Crop and enlarge the part that matters (PIL: `crop` then `resize` with
   LANCZOS, 3-6x) - a dish 60 px wide shows its struts only when enlarged.
+- To see a moving part move live, take two looks a few seconds apart from
+  the same place and lay the same crop of each side by side: crates riding
+  a belt or a hauler on its run show as a part moved between them
+  (Kairos's slide and swell, live session 24).
 - Judge orientation with care. The live guess "the buggy is seen from
   behind" was wrong: it was parked nose-out. Use `status.peers[].facing`
   for a player, and a side view before saying which end of a thing is the
