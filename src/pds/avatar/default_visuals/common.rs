@@ -402,6 +402,21 @@ pub(crate) fn first_difference(a: &Generator, b: &Generator, path: &str) -> Opti
             b.transform
         ));
     }
+    // How a part moves is drawn too: a turn, a slide or a swell (#1944, the
+    // floater's pulse) the sanitiser clamped would move it otherwise than
+    // it was built to.
+    if a.spin != b.spin || a.slide != b.slide || a.swell != b.swell {
+        return Some(format!(
+            "{path} ({}): motion {:?} {:?} {:?} -> {:?} {:?} {:?}",
+            a.kind.kind_tag(),
+            a.spin,
+            a.slide,
+            a.swell,
+            b.spin,
+            b.slide,
+            b.swell
+        ));
+    }
     if a.children.len() != b.children.len() {
         return Some(format!("{path}: child count"));
     }

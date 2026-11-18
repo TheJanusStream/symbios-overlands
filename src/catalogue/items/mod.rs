@@ -54,7 +54,7 @@ pub mod measure;
 mod util;
 
 #[cfg(test)]
-mod lamp_sight;
+pub(crate) mod lamp_sight;
 #[cfg(test)]
 mod lit_items;
 #[cfg(test)]
@@ -273,6 +273,10 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &industrial_park::derelict_shed::DerelictShed,
     &industrial_park::rusted_tank::RustedTank,
     &industrial_park::scrap_heap::ScrapHeap,
+    // Industrial Park, placed from the Catalogue alone (#1940): crates riding
+    // a belt under a press, and a yard crane whose cable swells with its hook.
+    &industrial_park::crate_conveyor::CrateConveyor,
+    &industrial_park::gantry_crane::GantryCrane,
     // Buildings - Coastal Resort theme (landmark + secondaries + props).
     &coastal_resort::grand_hotel::GrandHotel,
     &coastal_resort::resort_pier::ResortPier,
@@ -293,6 +297,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &coastal_resort::fishing_shack::FishingShack,
     &coastal_resort::bait_stand::BaitStand,
     &coastal_resort::crab_traps::CrabTraps,
+    // Coastal Resort, placed from the Catalogue alone (#1940): a ride whose
+    // horses slide on their poles.
+    &coastal_resort::carousel::Carousel,
     // Buildings - Roadside / Highway theme (landmark + secondaries + props).
     &roadside::gas_station::GasStation,
     &roadside::roadside_diner::RoadsideDiner,
@@ -939,9 +946,21 @@ mod tests {
         got.sort();
         let want = [
             "banner_pole [0, 1, 0] vane [0, 0, 1]",
+            "carousel [0, 1, 0] steady 24",
             "cog_tower [0, 0, -1] steady -20",
             "cog_tower [0, 0, -1] steady -28",
             "cog_tower [0, 0, -1] steady 10",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, -1] steady 597",
+            "crate_conveyor [0, 0, 1] steady 180",
             "drone_perch [0, 1, 0] steady -900",
             "drone_perch [0, 1, 0] steady -900",
             "drone_perch [0, 1, 0] steady 900",
@@ -950,6 +969,10 @@ mod tests {
             "flagpole [0, 1, 0] vane [1, 0, 0]",
             "foundry [0, 0, -1] steady -21",
             "foundry [0, 0, -1] steady 10",
+            "gantry_crane [-1, 0, 0] Roll",
+            "gantry_crane [-1, 0, 0] Roll",
+            "gantry_crane [-1, 0, 0] Roll",
+            "gantry_crane [-1, 0, 0] Roll",
             "harbour_tavern [1, 0, 0] wind 12",
             "ships_lantern [1, 0, 0] lean 2.5/0.8s",
             "steampunk_gateway [0, 0, -1] steady -25",
@@ -962,6 +985,96 @@ mod tests {
             "windmill [0, 0, 1] steady -40",
             "windmill [0, 1, 0] vane [0, 0, 1]",
             "windsock [0, 1, 0] vane [1, 0, 0]",
+        ];
+        assert_eq!(got, want);
+    }
+
+    /// #1940: which catalogue entries slide and swell, and how - each part's
+    /// terms and its axis (a slide's) in the entry's own frame, pinned whole
+    /// as the turns are, so a horse that stops riding or a part that starts
+    /// sliding is a decision someone took. The motions' fit - the horses'
+    /// phases round the ring, the press on the crates' beat, the cable on the
+    /// hook - is each entry's own guard's to hold.
+    #[test]
+    fn the_catalogue_slides_and_swells_exactly_these_parts() {
+        use crate::catalogue::items::util::placed;
+        use crate::pds::{SlideTerm, SwellTerm};
+        let mut got: Vec<String> = Vec::new();
+        for e in ENTRIES {
+            let built = e.build("");
+            for p in placed(&built) {
+                if let Some(slide) = &p.node.slide {
+                    let axis = (p.world.rotation * bevy::prelude::Vec3::from_array(slide.axis.0))
+                        .normalize()
+                        .to_array()
+                        .map(|c| c.round() as i32);
+                    let terms: Vec<String> = slide
+                        .terms
+                        .iter()
+                        .map(|t| match t {
+                            SlideTerm::Swing {
+                                amplitude,
+                                period,
+                                phase,
+                            } => format!("swing {}/{}s at {}", amplitude.0, period.0, phase.0),
+                            SlideTerm::Bounce {
+                                height,
+                                period,
+                                phase,
+                            } => format!("bounce {}/{}s at {}", height.0, period.0, phase.0),
+                            SlideTerm::Belt {
+                                speed,
+                                length,
+                                start,
+                            } => format!("belt {}/{} from {}", speed.0, length.0, start.0),
+                            other => other.label().to_string(),
+                        })
+                        .collect();
+                    got.push(format!("{} slide {axis:?} {}", e.slug(), terms.join(" + ")));
+                }
+                if let Some(swell) = &p.node.swell {
+                    let terms: Vec<String> = swell
+                        .terms
+                        .iter()
+                        .map(|t| match t {
+                            SwellTerm::Swing {
+                                amount,
+                                period,
+                                phase,
+                            } => format!("swing {}/{}s at {}", amount.0, period.0, phase.0),
+                            other => other.label().to_string(),
+                        })
+                        .collect();
+                    got.push(format!(
+                        "{} swell {:?} {}",
+                        e.slug(),
+                        swell.weights.0,
+                        terms.join(" + ")
+                    ));
+                }
+            }
+        }
+        got.sort();
+        let want = [
+            "carousel slide [0, 1, 0] swing 0.3/3s at 0",
+            "carousel slide [0, 1, 0] swing 0.3/3s at 135",
+            "carousel slide [0, 1, 0] swing 0.3/3s at 180",
+            "carousel slide [0, 1, 0] swing 0.3/3s at 225",
+            "carousel slide [0, 1, 0] swing 0.3/3s at 270",
+            "carousel slide [0, 1, 0] swing 0.3/3s at 315",
+            "carousel slide [0, 1, 0] swing 0.3/3s at 45",
+            "carousel slide [0, 1, 0] swing 0.3/3s at 90",
+            "crate_conveyor slide [0, 1, 0] bounce 0.42/2s at 0",
+            "crate_conveyor slide [1, 0, 0] belt 0.625/7.5 from 0",
+            "crate_conveyor slide [1, 0, 0] belt 0.625/7.5 from 1.25",
+            "crate_conveyor slide [1, 0, 0] belt 0.625/7.5 from 2.5",
+            "crate_conveyor slide [1, 0, 0] belt 0.625/7.5 from 3.75",
+            "crate_conveyor slide [1, 0, 0] belt 0.625/7.5 from 5",
+            "crate_conveyor slide [1, 0, 0] belt 0.625/7.5 from 6.25",
+            "gantry_crane slide [0, -1, 0] swing 2/13s at 0",
+            "gantry_crane slide [0, 0, 1] swing 3/30s at 0",
+            "gantry_crane slide [1, 0, 0] swing 4/17s at 0",
+            "gantry_crane swell [0.0, 1.0, 0.0] swing 0.5/13s at 0",
         ];
         assert_eq!(got, want);
     }

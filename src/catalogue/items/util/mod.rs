@@ -27,7 +27,8 @@ pub(super) use checks::{
     Placed, assert_cards_do_not_overlap, assert_no_coplanar_faces, assert_no_glazing_on_solids,
     assert_no_tilted_parents, assert_owner_panel, assert_plants_clear_solids,
     assert_plants_stand_on_their_parent, assert_sanitize_stable, assert_soil_sits_under_its_rim,
-    blob_components, has_emissive, nested_plants, placed, rotate_by, triangle_count, window_cards,
+    blob_components, has_emissive, motion_reach, nested_plants, placed, placed_at, rotate_by,
+    triangle_count, window_cards,
 };
 pub(super) use material::{
     ageing, bonded_boards, bonded_brick, bonded_siding, face_uv_offset, foundation_mat, from_dusk,

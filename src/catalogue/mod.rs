@@ -316,7 +316,12 @@ impl WearFit {
 /// Every entry of `role` tagged with `theme`, in registry order. The
 /// seeded settlement deriver builds its landmark / secondary / prop
 /// pools from this rather than a hardcoded slug list, so dropping a
-/// themed entry into [`ENTRIES`] grows the settlements automatically.
+/// themed entry into [`ENTRIES`] grows the settlements automatically -
+/// unless it is listed in the Catalogue alone
+/// ([`CatalogueEntry::seeds_worlds`]). A settlement's pools, a lot's, a
+/// path's linings, a gate's and a monument's all read their entries
+/// through here; a place for a craft is found by what it
+/// [serves](CatalogueEntry::serves) instead.
 pub fn entries_for(
     theme: ThemeArchetype,
     role: StructureRole,
@@ -324,7 +329,7 @@ pub fn entries_for(
     ENTRIES
         .iter()
         .copied()
-        .filter(move |e| e.role() == role && e.themes().contains(&theme))
+        .filter(move |e| e.seeds_worlds() && e.role() == role && e.themes().contains(&theme))
 }
 
 /// [`entries_for`] further gated by the room's socio-political tiers: an
@@ -399,6 +404,19 @@ pub trait CatalogueEntry: Sync {
     /// out of tagging is never mistaken for placeable settlement content.
     fn role(&self) -> StructureRole {
         StructureRole::Tool
+    }
+
+    /// Whether a seeded world may draw this entry (#1940): `true`, the
+    /// default, for every entry its theme's pools have always held. An
+    /// entry that returns `false` is listed in the Catalogue under its
+    /// themes and role like any other and placed by hand alone -
+    /// [`entries_for`] passes it over, so no settlement, lot or path draws
+    /// it and no seeded world changes for its arrival. The moving
+    /// showpieces of #1940 (a carousel, a crate conveyor, a gantry crane)
+    /// are such entries: made to show a part's slide and swell off where
+    /// someone placed them.
+    fn seeds_worlds(&self) -> bool {
+        true
     }
 
     /// Material re-skins this entry offers (#910). A
@@ -890,6 +908,60 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// The entries listed in the Catalogue alone (#1940) are exactly the
+    /// three showpieces of a part's slide and swell, and no seeded world can
+    /// draw one: no theme's pool of any role holds it, at any prosperity or
+    /// escalation, though the Catalogue still files it under its theme.
+    #[test]
+    fn catalogue_only_entries_stay_out_of_every_seeded_pool() {
+        let only: Vec<&str> = ENTRIES
+            .iter()
+            .filter(|e| !e.seeds_worlds())
+            .map(|e| e.slug())
+            .collect();
+        assert_eq!(only, ["crate_conveyor", "gantry_crane", "carousel"]);
+        let roles = [
+            StructureRole::Landmark,
+            StructureRole::Secondary,
+            StructureRole::Prop,
+            StructureRole::Plant,
+            StructureRole::Pattern,
+            StructureRole::Tool,
+            StructureRole::Gateway,
+            StructureRole::Attachment,
+            StructureRole::Monument,
+            StructureRole::Port,
+        ];
+        let mut pooled = 0;
+        for theme in ThemeArchetype::ALL {
+            for role in roles {
+                for e in entries_for(theme, role) {
+                    pooled += 1;
+                    assert!(
+                        e.seeds_worlds(),
+                        "{} is in {theme:?}'s {role:?} pool",
+                        e.slug()
+                    );
+                }
+                for p in ProsperityTier::ALL {
+                    for x in EscalationTier::ALL {
+                        assert!(entries_for_room(theme, role, p, x).all(|e| e.seeds_worlds()));
+                    }
+                }
+            }
+        }
+        assert!(pooled > 300, "the pools were read: {pooled}");
+        for slug in only {
+            let entry = by_slug(slug).expect("listed");
+            assert!(
+                !entry.themes().is_empty(),
+                "{slug} is filed under its theme"
+            );
+            assert!(entry.serves().is_none(), "{slug} is no place for a craft");
+            assert!(entry.lines_paths().is_none(), "{slug} lines no path");
         }
     }
 

@@ -16,8 +16,10 @@
 
 pub mod container_crane_quay;
 pub mod cooling_tower;
+pub mod crate_conveyor;
 pub mod factory;
 pub mod floodlight;
+pub mod gantry_crane;
 pub mod gateway;
 pub mod loading_dock;
 pub mod monument;

@@ -9,8 +9,8 @@ use crate::pds::{Generator, GeneratorKind, SovereignTextureConfig};
 /// geometrically untouched. Rotations are compared with an epsilon
 /// because the sanitiser renormalises every quaternion, which can
 /// shift the last ulp of an already-normalised rotation; everything
-/// else must be bit-identical - a node's light (#1923) as much as its
-/// geometry.
+/// else must be bit-identical - a node's light (#1923) and its turn, slide
+/// and swell (#1940) as much as its geometry.
 pub(in crate::catalogue::items) fn assert_sanitize_stable(built: &Generator, name: &str) {
     fn tree_eq(a: &Generator, b: &Generator, name: &str) {
         assert_eq!(a.kind, b.kind, "{name}: kind rewritten by sanitiser");
@@ -31,6 +31,11 @@ pub(in crate::catalogue::items) fn assert_sanitize_stable(built: &Generator, nam
             );
         }
         assert_eq!(a.light, b.light, "{name}: light rewritten by sanitiser");
+        // A part's motion too (#1940): a clamped period or amplitude moves
+        // it otherwise than its item says, and its guards read what it says.
+        assert_eq!(a.spin, b.spin, "{name}: spin rewritten by sanitiser");
+        assert_eq!(a.slide, b.slide, "{name}: slide rewritten by sanitiser");
+        assert_eq!(a.swell, b.swell, "{name}: swell rewritten by sanitiser");
         assert_eq!(a.children.len(), b.children.len(), "{name}: child dropped");
         for (ca, cb) in a.children.iter().zip(b.children.iter()) {
             tree_eq(ca, cb, name);
@@ -334,6 +339,84 @@ pub(in crate::catalogue::items) fn placed(root: &Generator) -> Vec<Placed<'_>> {
     let mut out = Vec::new();
     walk(root, Transform::IDENTITY, &mut Vec::new(), &mut out);
     out
+}
+
+/// Every node of a built item [`Placed`] as a client draws it at `now` (s)
+/// - each node that turns, slides or swells posed by its spinner's clock
+///   terms, a slide and a swell calmed by `calm` (one as authored, a half at
+///   Settings > Effects Reduced) - the root first (#1940). One copy shares
+///   one clock offset, so `now` stands for the copy's clock with its offset
+///   in. The floating and z-fighting checks read the authored pose alone;
+///   this is how an item's guards read the rest of its motion.
+pub(in crate::catalogue::items) fn placed_at(
+    root: &Generator,
+    now: f64,
+    calm: f32,
+) -> Vec<Placed<'_>> {
+    use crate::catalogue::items::measure::{mesh_bounds, transform_of};
+    use crate::world_builder::spin::Spinner;
+    use bevy::prelude::Transform;
+    fn walk<'a>(
+        node: &'a Generator,
+        parent: Transform,
+        clock: (f64, f32),
+        path: &mut Vec<usize>,
+        out: &mut Vec<Placed<'a>>,
+    ) {
+        let authored = transform_of(&node.transform);
+        let local = Spinner::of_node(node, authored, 0.0)
+            .map_or(authored, |spinner| spinner.clock_pose(clock.0, clock.1));
+        let world = parent * local;
+        out.push(Placed {
+            path: path.clone(),
+            node,
+            world,
+            drawn: mesh_bounds(&node.kind, &world),
+        });
+        for (i, child) in node.children.iter().enumerate() {
+            path.push(i);
+            walk(child, world, clock, path, out);
+            path.pop();
+        }
+    }
+    let mut out = Vec::new();
+    walk(
+        root,
+        Transform::IDENTITY,
+        (now, calm),
+        &mut Vec::new(),
+        &mut out,
+    );
+    out
+}
+
+/// How far across the ground from its origin a built item draws anything,
+/// at any of `times` (s) - each primitive's own mesh points, posed as
+/// [`placed_at`] poses them with its motion as authored (#1940). What a
+/// moving item's footprint must cover: the bounds of a turned part would
+/// overstate a round one's reach by its diagonal.
+pub(in crate::catalogue::items) fn motion_reach(root: &Generator, times: &[f64]) -> f32 {
+    use crate::catalogue::items::measure::is_primitive;
+    let mut reach = 0.0_f32;
+    let points: Vec<Vec<bevy::prelude::Vec3>> = placed(root)
+        .iter()
+        .map(|p| {
+            if is_primitive(&p.node.kind) {
+                crate::world_builder::primitive_points(&p.node.kind)
+            } else {
+                Vec::new()
+            }
+        })
+        .collect();
+    for &now in times {
+        for (p, local) in placed_at(root, now, 1.0).iter().zip(&points) {
+            for &v in local {
+                let at = p.world.transform_point(v);
+                reach = reach.max(at.x.hypot(at.z));
+            }
+        }
+    }
+    reach
 }
 
 /// One upright glazing card as the guards see it: its world centre and the

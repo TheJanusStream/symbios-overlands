@@ -72,6 +72,37 @@ impl Slide {
     pub fn moves(&self) -> bool {
         is_direction(self.axis) && self.terms.iter().any(SlideTerm::moves)
     }
+
+    /// The nearest and the furthest along its axis the terms can carry the
+    /// node (m): a swing or a wobble either side of its place, a hop from
+    /// its place up to its height, a belt over its whole run, a wind term
+    /// either way in the strongest wind (it slides downwind, and the wind
+    /// may blow along the axis either way). A term that does not move adds
+    /// nothing, as the runtime skips it; calming a slide only shortens it,
+    /// so this holds at every Effects setting. What a box that holds a
+    /// sliding part reads (the airships' `swept_bounds`).
+    pub fn offset_range(&self) -> (f32, f32) {
+        let (mut lo, mut hi) = (0.0_f32, 0.0_f32);
+        for term in self.terms.iter().filter(|t| t.moves()) {
+            let (near, far) = match *term {
+                SlideTerm::Swing { amplitude, .. } | SlideTerm::Wobble { amplitude, .. } => {
+                    (-amplitude.0.abs(), amplitude.0.abs())
+                }
+                SlideTerm::Bounce { height, .. } => (height.0.min(0.0), height.0.max(0.0)),
+                SlideTerm::Belt { length, .. } => (0.0, length.0),
+                SlideTerm::Wind { amplitude } => {
+                    let gale = amplitude.0.abs() * super::sanitize::limits::MAX_WIND_SCALE;
+                    (-gale, gale)
+                }
+                SlideTerm::Unknown => (0.0, 0.0),
+            };
+            if near.is_finite() && far.is_finite() {
+                lo += near;
+                hi += far;
+            }
+        }
+        (lo, hi)
+    }
 }
 
 /// One contribution to a node's offset (m), summed with its other terms.
@@ -356,6 +387,47 @@ mod tests {
         assert!(!Slide::along([1.0, 0.0, 0.0], belt(0.5, 0.0)).moves());
         assert!(Slide::along([1.0, 0.0, 0.0], belt(-0.5, 2.0)).moves());
         assert!(!Slide::default().moves(), "no terms, no move");
+    }
+
+    /// How far a slide can carry its node, each term at its furthest: a
+    /// swing and a wobble either side, a hop one way, a belt over its run,
+    /// a wind term either way in the strongest wind; a still term nothing.
+    #[test]
+    fn a_slides_range_is_every_terms_reach_summed() {
+        let slide = |terms: Vec<SlideTerm>| Slide {
+            axis: Fp3([0.0, 1.0, 0.0]),
+            terms,
+        };
+        let swing = SlideTerm::Swing {
+            amplitude: Fp(-0.3),
+            period: Fp(2.0),
+            phase: Fp(90.0),
+        };
+        assert_eq!(slide(vec![swing.clone()]).offset_range(), (-0.3, 0.3));
+        let hop = SlideTerm::Bounce {
+            height: Fp(-0.5),
+            period: Fp(1.0),
+            phase: Fp::ZERO,
+        };
+        let belt = SlideTerm::Belt {
+            speed: Fp(-0.5),
+            length: Fp(4.0),
+            start: Fp(1.0),
+        };
+        let gust = SlideTerm::Wind { amplitude: Fp(0.1) };
+        let (lo, hi) = slide(vec![swing, hop, belt, gust]).offset_range();
+        let gale = 0.1 * crate::pds::sanitize::limits::MAX_WIND_SCALE;
+        assert!((lo - (-0.3 - 0.5 - gale)).abs() < 1e-6, "{lo}");
+        assert!((hi - (0.3 + 4.0 + gale)).abs() < 1e-6, "{hi}");
+        let still = SlideTerm::Swing {
+            amplitude: Fp(0.3),
+            period: Fp::ZERO,
+            phase: Fp::ZERO,
+        };
+        assert_eq!(
+            slide(vec![still, SlideTerm::Unknown]).offset_range(),
+            (0.0, 0.0)
+        );
     }
 
     /// A node without a slide or swell writes exactly what it wrote before

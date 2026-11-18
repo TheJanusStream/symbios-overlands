@@ -1,7 +1,7 @@
 //! Item preview - a live 3D picture of the selected catalogue entry
 //! (#1288) or stash item (#1301).
 //!
-//! The Catalogue lists 392 entries by name and description alone, so the
+//! The Catalogue lists its entries by name and description alone, so the
 //! only way to find out what one looks like was to copy it into the stash
 //! and wear or place it; the Inventory was the same list of names. This
 //! module renders the *selected* item into an off-screen texture that both

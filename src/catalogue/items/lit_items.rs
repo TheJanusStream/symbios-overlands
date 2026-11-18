@@ -49,6 +49,8 @@ const LIT: &[(&str, &str)] = &[
     ("loading_dock", "3S"),
     ("container_crane_quay", "1B 2S"),
     ("floodlight", "1S"),
+    ("crate_conveyor", "1P"),
+    ("gantry_crane", "1S 2P"),
     ("resort_pier", "6B"),
     ("beach_house", "1B"),
     ("boardwalk_shops", "1B"),
@@ -57,6 +59,7 @@ const LIT: &[(&str, &str)] = &[
     ("clifftop_lighthouse", "1B"),
     ("fishing_shack", "1B"),
     ("bait_stand", "1B"),
+    ("carousel", "4B"),
     ("gas_station", "3S"),
     ("billboard", "3S"),
     ("town_hall", "2B"),
@@ -197,6 +200,7 @@ const FLAMES: &[&str] = &[
 /// The items whose every light is a beacon's, and so pulses.
 const BEACONS: &[&str] = &[
     "buoy",
+    "crate_conveyor",
     "comms_dish",
     "beacon",
     "holo_pillar_monument",

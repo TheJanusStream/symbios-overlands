@@ -239,6 +239,12 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   Distances are held to the tree's ceiling on a part's size, 100 m in a
   world and 16 m on a body. A slide reads the spin's clock and copy offset,
   so a spin's swing and a slide's of one period and phase peak together.
+  Worked examples in the Catalogue: `carousel` (eight horses swinging on
+  their poles, phases 45 degrees apart, on a turning top), `crate_conveyor`
+  (six crates at one place on one belt, under a press whose bounce has the
+  crates' interval for its period) and `gantry_crane` (three swings nested:
+  gantry, trolley, hook); `render --catalogue <slug> --dump` prints each
+  one's JSON.
 - **A part can swell** (#1935): `"swell": {"weights": [0, 10000, 0],
   "keep_volume": true, "terms": [...]}` on the same nodes. Every visitor's
   client breathes the node's size, and everything below it with it. The
@@ -254,7 +260,12 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   blows). A mushroom cap that breathes every 3 s,
   squashing and stretching, is `"swell": {"weights": [0, 10000, 0],
   "keep_volume": true, "terms": [{"$type": "network.symbios.swell.swing",
-  "amount": 1500, "period": 30000}]}`.
+  "amount": 1500, "period": 30000}]}`. The Catalogue's `gantry_crane` is a
+  worked example: its hoist cable hangs from a hidden reel node whose origin
+  is the cable's top, swelling `"weights": [0, 10000, 0]` with the hook's
+  period and phase and an amount of the hook's swing over the cable's
+  length, so the cable's end rides on the hook (`render --catalogue
+  gantry_crane --dump` prints it).
 - **A slide and a swell are for looking at**, as a spin is: a sliding or
   swelling part and everything under it has no solid collider, both stand
   still while the World Editor has a selection, and an instance set's

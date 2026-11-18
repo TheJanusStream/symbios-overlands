@@ -14,7 +14,8 @@
 //! lamp itself or a part glowing at least as brightly as a lamp must (its
 //! glazing). Alpha cards are looked through.
 //!
-//! Read for the catalogue's lamps (`lit_items`). The seeded vehicles' lamps
+//! Read for the catalogue's lamps (`lit_items`), and for the organic
+//! floater's glow under her bell (#1944). The other seeded vehicles' lamps
 //! were measured this way once, for #1927 (two seeds of each craft type, all
 //! passing); nothing in the tree reads them so now.
 

@@ -121,7 +121,7 @@ const VANE_HUNT_DEG: f32 = 5.0;
 /// intensity Reduced, as a share of what was authored: half, as a light's
 /// flicker is calmed (`world_builder::light`). A belt runs at this share of
 /// its speed instead, its length kept. A turn is left as authored.
-const REDUCED_MOTION_SHARE: f32 = 0.5;
+pub(crate) const REDUCED_MOTION_SHARE: f32 = 0.5;
 
 /// Register the spin systems and their resources on `app`, with the clock
 /// its spinners read. The game passes [`SpinClock::utc`]; the headless
@@ -668,6 +668,18 @@ impl Spinner {
     #[cfg(test)]
     pub(crate) fn epoch(&self) -> f64 {
         self.epoch
+    }
+
+    /// The pose the clock terms give at `now`, a slide and a swell calmed by
+    /// `calm` as [`animate_spinners`] calms them (one as authored,
+    /// [`REDUCED_MOTION_SHARE`] at Effects Reduced): what a catalogue test
+    /// samples an item's motion by (#1940), with no app and no frame. The
+    /// motion and wind terms add nothing here - they integrate what a frame
+    /// measured, and a still room blows no wind.
+    #[cfg(test)]
+    pub(crate) fn clock_pose(&self, now: f64, calm: f32) -> Transform {
+        let (offset, amount) = self.clock_shift(now, calm);
+        self.posed(self.clock_angle(now), offset, amount)
     }
 
     /// The angle the clock terms give at `now` (rad).

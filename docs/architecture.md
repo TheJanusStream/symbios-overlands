@@ -644,11 +644,15 @@ generation cores shared with the wasm Web Worker.
   leading family's posture, with the flight section its body flies by
   ([`fit.rs`](../src/pds/avatar/locomotion/fit.rs)).
 - [`src/catalogue/`](../src/catalogue/) - code-shipped read-only library of
-  starter generator blueprints (~380 entries across 24 themes),
-  organised by theme and structural role (landmark / secondary / prop / plant /
-  pattern / tool, plus the per-theme gateway and owner monument), functionally
-  analogous to a user inventory but always present; the same entries the seeded
-  settlement deriver draws from. Beside them,
+  starter generator blueprints (576 entries by the count of 2026-11-18,
+  `items::ENTRIES` the one to trust: themed buildings and props across the 24
+  themes, their street buildings, the plants, the cross-theme civic
+  kit, the family gates and monuments, the wearables, the places for crafts,
+  the patterns and the tool), organised by theme and structural role (landmark
+  / secondary / prop / plant / pattern / tool, plus the per-theme gateway and
+  owner monument), functionally analogous to a user inventory but always
+  present; the same entries the seeded settlement deriver draws from, but for
+  the few listed in the Catalogue alone (`CatalogueEntry::seeds_worlds`, #1940). Beside them,
   [`avatars.rs`](../src/catalogue/avatars.rs) lists the Catalogue's avatars
   (#1840): recipes, not stored records - each a slug, a name, its
   `AvatarPins` and a start seed, built on demand by the pinned re-roll's hunt

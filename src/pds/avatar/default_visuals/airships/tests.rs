@@ -207,6 +207,39 @@ fn her_box_holds_her_and_she_is_centred_in_it() {
     assert!(checked > 50, "only {checked} airship seeds under 400");
 }
 
+/// Only the floater moves on the clock but by turning all the way round
+/// (#1944): no other type's part slides, swells or swings, so the arms of
+/// [`swept_bounds`] that read a slide's travel, a swell's reach and a
+/// swing's arc are idle for every other type, and her box is the box it
+/// was before the floater's pulse. Her own pulse is on every tier.
+#[test]
+fn only_the_floater_slides_swells_or_swings_on_the_clock() {
+    fn moves_on_the_clock(g: &Generator) -> bool {
+        let swings = g.spin.as_ref().is_some_and(|s| {
+            s.terms
+                .iter()
+                .any(|t| matches!(t, SpinTerm::Swing { .. } | SpinTerm::Wobble { .. }))
+        });
+        swings
+            || g.slide.is_some()
+            || g.swell.is_some()
+            || g.children.iter().any(moves_on_the_clock)
+    }
+    for Drawn {
+        craft: t,
+        built,
+        what,
+        ..
+    } in every_drawn()
+    {
+        assert_eq!(
+            moves_on_the_clock(&built),
+            t == AirshipType::Floater,
+            "{what}"
+        );
+    }
+}
+
 /// Her airscrews and fans turn opposite ways in pairs - a ship's engines are
 /// handed, so she does not yaw on her own torque: each one off her
 /// centreline has a twin at its mirror image turning the other way, and one
@@ -322,14 +355,19 @@ fn engines(t: AirshipType) -> usize {
 /// with a millimetre along her axis and a hundredth of her girth across it.
 /// (Between two stations of the same radius the spline bulges a fifth of a
 /// per cent toward its neighbours' mean - a loop is tens of per cent.) The
-/// hull is the first part every type draws, along her or stood on end.
+/// hull is the first part every type draws, along her or stood on end: her
+/// root's first child, or the floater's first under the hidden nodes that
+/// carry her pulse (#1944).
 #[test]
 fn her_hull_never_loops_past_its_stations() {
     for Drawn {
         built, plan, what, ..
     } in every_drawn()
     {
-        let hull = &built.children[0];
+        let mut hull = &built.children[0];
+        while carries_a_pulse(hull) {
+            hull = &hull.children[0];
+        }
         let crate::pds::generator::GeneratorKind::Spine {
             points: stations, ..
         } = &hull.kind
@@ -354,10 +392,46 @@ fn her_hull_never_loops_past_its_stations() {
     }
 }
 
+/// Whether `g` is one of the hidden nodes at her origin that carry the
+/// floater's pulse (#1944) - her body and her bell: a node that slides or
+/// swells, which no other type's parts do, standing where it is drawn
+/// unturned and unscaled. A tentacle's hub slides too, but hangs at the rim.
+fn carries_a_pulse(g: &Generator) -> bool {
+    (g.slide.is_some() || g.swell.is_some()) && g.transform == crate::pds::TransformData::default()
+}
+
+/// `root` with every part the floater's pulse carries hung on the root
+/// itself, as it stands at rest: the body and bell nodes are drawn at her
+/// origin unturned and unscaled, so their parts keep their places. A tree
+/// with no such node - every other type's - comes back as it went.
+fn pulse_hoisted(root: &Generator) -> Generator {
+    fn hoist(g: &Generator, out: &mut Vec<Generator>) {
+        if !carries_a_pulse(g) {
+            out.push(g.clone());
+            return;
+        }
+        let mut alone = g.clone();
+        alone.children.clear();
+        alone.slide = None;
+        alone.swell = None;
+        out.push(alone);
+        for child in &g.children {
+            hoist(child, out);
+        }
+    }
+    let mut flat = root.clone();
+    flat.children.clear();
+    for child in &root.children {
+        hoist(child, &mut flat.children);
+    }
+    flat
+}
+
 /// Every lit part she draws shows past the rest of her (#1619), on every
 /// type at every blueprint extreme, on her fullest ladder: at least one
 /// vertex in thirty of each sees out ([`sight::lit_shares`]). Read on a kit
-/// that lights nothing but her lamps and windows.
+/// that lights nothing but her lamps and windows, and the floater at rest
+/// with what her pulse carries hung on her root ([`pulse_hoisted`]).
 #[test]
 fn every_lit_part_she_draws_shows() {
     let seed = airship_seeds(600)
@@ -368,7 +442,7 @@ fn every_lit_part_she_draws_shows() {
     for t in AirshipType::ALL {
         for bp in blueprints() {
             let plan = craft(t).plan(&bp);
-            let shares = sight::lit_shares(&craft(t).build(&ctx, &plan));
+            let shares = sight::lit_shares(&pulse_hoisted(&craft(t).build(&ctx, &plan)));
             let what = format!("a {} m {}, fineness {}", bp.length, t.label(), bp.fineness);
             assert!(shares.len() >= 3, "{what}: {} lit parts", shares.len());
             for (i, share) in shares {
@@ -641,7 +715,12 @@ fn box_setters(t: AirshipType, ctx: &PartCtx) -> Option<[Setter; 5]> {
                 ("her bell", made_of(&c.bell)),
                 ("her tentacles", turning()),
                 ("her margin", made_of(&c.margin)),
-                ("her margin", made_of(&c.margin)),
+                // Her tentacles trail astern as drawn, and on her slimmest
+                // bell their swing carries them past her margin (#1944).
+                (
+                    "her margin, or her tentacles swung astern",
+                    either(made_of(&c.margin), turning()),
+                ),
             ]
         }
     })
@@ -655,7 +734,9 @@ fn box_setters(t: AirshipType, ctx: &PartCtx) -> Option<[Setter; 5]> {
 /// (#1664): no face of any type is set by a part that should not set it.
 /// The galleon's ornate pennant streams past her tail cap, and on a full
 /// blueprint the blimp's band - or the sign in it, 5 mm proud of her - stands
-/// wider than her airscrews reach.
+/// wider than her airscrews reach. The floater's parts are read where her
+/// pulse carries them, through the hidden nodes that carry it (#1944): her
+/// margin at her bell's widest, her crown and keel at the ends of her heave.
 #[test]
 fn every_type_has_her_box_set_by_the_parts_that_should_set_it() {
     let mut ctx = PartCtx::for_seed(an_airship_seed());
@@ -686,12 +767,26 @@ fn every_type_has_her_box_set_by_the_parts_that_should_set_it() {
                     ("tail", tail, b.min.z, |p| p.min.z),
                 ];
                 for (face, (name, is), want, of) in faces {
-                    let parts: Vec<&Generator> = built.children.iter().filter(|g| is(g)).collect();
+                    let mut parts: Vec<(&Generator, bool)> = Vec::new();
+                    let mut open: Vec<(&Generator, bool)> =
+                        built.children.iter().map(|g| (g, false)).collect();
+                    while let Some((g, carried)) = open.pop() {
+                        if carries_a_pulse(g) {
+                            open.extend(g.children.iter().map(|c| (c, true)));
+                        } else if is(g) {
+                            parts.push((g, carried));
+                        }
+                    }
                     assert!(!parts.is_empty(), "{what}: she draws no {name}");
                     assert!(
-                        parts
-                            .iter()
-                            .any(|g| (of(&swept_bounds(g)) - want).abs() < 1e-4),
+                        parts.iter().any(|&(g, carried)| {
+                            let b = if carried {
+                                swept_bounds_of(&built, g)
+                            } else {
+                                swept_bounds(g)
+                            };
+                            (of(&b) - want).abs() < 1e-4
+                        }),
                         "{what}: her box's {face} ({want:.4}) is not set by {name}"
                     );
                 }

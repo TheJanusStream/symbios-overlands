@@ -1197,7 +1197,8 @@ mod tests {
                 // hot-air balloon's box reaches past it to her basket's floor
                 // (#1661), a floater's to her tentacles' tips (#1663) and a
                 // long steam dirigible's to her pusher's disc (#1659): set
-                // down 1.24 to 1.38 m, 1.09 to 1.15 and up to 1.08 under 400.
+                // down 1.24 to 1.38 m, 1.15 to 1.21 (the floater's box holds
+                // her pulse's sink, #1944) and up to 1.08 under 400.
                 ChassisFamily::Airship => {
                     let t = crate::seeded_defaults::AirshipType::for_seed(seed);
                     use crate::seeded_defaults::AirshipType::*;

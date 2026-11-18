@@ -18,7 +18,8 @@
 //!   red to port, green to starboard, white astern ([`running`]) - and the
 //!   anti-collision beacons and strobes as pulses ([`strobe`]), with a
 //!   landing light where one is drawn ([`landing_light`]); an airship's
-//!   gondola lamps and lanterns, and a balloon's burner as a fire.
+//!   gondola lamps and lanterns, a balloon's burner as a fire, and the
+//!   organic floater's own glow under her bell, breathing ([`breath`]).
 //! * **Boats**: a cabin's light where its windows glow ([`cabin`]), a white
 //!   light astern and at the masthead where they are drawn, the lanterns of
 //!   the craft that hang them as flames, and a skimmer's thrusters as her
@@ -63,7 +64,7 @@
 //! front of her camera head rather than from its pane.
 
 use crate::catalogue::items::fx::light::{Lamp, lit, lit_at};
-use crate::pds::Generator;
+use crate::pds::{Fp, Generator, LightFlicker};
 
 /// How far ahead of its headlamps a road vehicle's beam meets the road (m):
 /// a pool a couple of car lengths ahead. The beam reaches twice its length
@@ -198,6 +199,29 @@ pub(super) fn own_lantern(part: Generator) -> Generator {
     )
 }
 
+/// A living thing's glow on `part`, standing at `at` on it, breathing once
+/// every `period` seconds - the organic floater's under her bell (#1944):
+/// a beacon's shallow breath, shining every way, which the creature
+/// carries for herself. Its rate is on the wire's grid, as everything a
+/// seeded craft writes is. When in the period it brightens is the light's
+/// own, set by the wearer and the node's place, so it shares the bell's
+/// period and not its phase.
+pub(super) fn breath(part: Generator, at: [f32; 3], period: f32) -> Generator {
+    let mut part = lit_if(
+        part,
+        Lamp::Beacon {
+            over: OWN_LAMP_OVER_M,
+        },
+        Some(at),
+    );
+    if let Some(LightFlicker::Pulse { rate, .. }) =
+        part.light.as_mut().and_then(|l| l.flicker.as_mut())
+    {
+        *rate = Fp(period.recip()).on_wire();
+    }
+    part
+}
+
 /// A burner's fire on `part` - a balloon's.
 pub(super) fn own_fire(part: Generator) -> Generator {
     lit_if(
@@ -264,12 +288,14 @@ mod tests {
     }
 
     /// A light's kind: `H` a beam (a headlight, a landing light), `S` an
-    /// anti-collision light, `F` a flame or fire, `B` a lamp the craft
-    /// carries for herself (a cabin light, a gondola's lamp), `R` a running
-    /// light.
+    /// anti-collision light, `G` a living thing's breathing glow (the
+    /// floater's, which pulses from dusk to dawn where a strobe pulses at
+    /// every hour), `F` a flame or fire, `B` a lamp the craft carries for
+    /// herself (a cabin light, a gondola's lamp), `R` a running light.
     fn kind(light: &LightSource) -> char {
         match (&light.shape, &light.flicker) {
             (LightShape::Spot { .. }, _) => 'H',
+            (_, Some(LightFlicker::Pulse { .. })) if light.dusk_to_dawn => 'G',
             (_, Some(LightFlicker::Pulse { .. })) => 'S',
             (_, Some(LightFlicker::Flicker { .. })) => 'F',
             _ if light.brightness.0 > 8.0 => 'B',
@@ -277,10 +303,11 @@ mod tests {
         }
     }
 
-    /// `root`'s lights as a count before each kind, in the order H R S F B.
+    /// `root`'s lights as a count before each kind, in the order H R S G F
+    /// B.
     fn signature(root: &Generator) -> String {
         let kinds: Vec<char> = framed(root).iter().map(|(l, _)| kind(l)).collect();
-        "HRSFB"
+        "HRSGFB"
             .chars()
             .filter_map(|k| {
                 let n = kinds.iter().filter(|&&c| c == k).count();
@@ -389,9 +416,9 @@ mod tests {
     /// Every craft type and the lights its seeds carry, as [`signature`]
     /// spells them: one entry for each set of lamps a seed of it draws (a
     /// lantern or a beacon only some tiers hang). A type with `""` among
-    /// them draws some seeds with no lamp at all; the longship and the
-    /// floater draw none - the longship's one lit part is her vane, the
-    /// floater's a creature's glow.
+    /// them draws some seeds with no lamp at all; the longship draws none -
+    /// her one lit part is her vane - and a plain floater none, for nothing
+    /// glows under her bell until her oral arms hang there (#1944).
     const LIT: &[(CraftType, &[&str])] = &[
         (CraftType::Skiff(SkiffType::Roadster), &["2H 2R"]),
         (CraftType::Skiff(SkiffType::DuneBuggy), &["2H 2R"]),
@@ -444,7 +471,7 @@ mod tests {
             &["1F", "1F 1B"],
         ),
         (CraftType::Airship(AirshipType::Hybrid), &["2R", "2R 2S"]),
-        (CraftType::Airship(AirshipType::Floater), &[""]),
+        (CraftType::Airship(AirshipType::Floater), &["", "1G"]),
     ];
 
     /// Every craft type of every vehicle family, and the seeds the tests

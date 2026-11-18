@@ -288,8 +288,9 @@ fn matches(e: &dyn CatalogueEntry, q: &str) -> bool {
 /// and that is not a thing a user can infer from "No matches."
 pub(crate) fn empty_state(query: &str) -> &'static str {
     if query.trim().is_empty() {
-        // Unreachable with the shipped registry (392 entries, and every
-        // browse mode covers all of them - `every_mode_covers_all_entries`).
+        // Unreachable with the shipped registry (hundreds of entries, and
+        // every browse mode covers all of them -
+        // `every_mode_covers_all_entries`).
         // It is here so a build that ships an empty registry says so instead
         // of looking broken.
         "This build shipped no catalogue entries."

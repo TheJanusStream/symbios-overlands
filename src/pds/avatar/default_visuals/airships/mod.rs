@@ -24,7 +24,8 @@
 //! # Where an airship sits
 //!
 //! In a box that holds everything she draws - her airscrews' discs swept
-//! whole - nose to tail, keel to crown and side to side, MEASURED off the
+//! whole, the floater's pulse at both its ends (#1944) - nose to tail, keel
+//! to crown and side to side, MEASURED off the
 //! drawn tree ([`swept_bounds`]) as the autogyro's and the coaxial's are
 //! (#1624, #1628), so a later type's box is right without a formula of its
 //! own. She is drawn centred in it fore and aft, and the travel pose drops
@@ -56,6 +57,7 @@ use crate::catalogue::items::measure::Bounds;
 use crate::pds::SpinTerm;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::{Generator, GeneratorKind};
+use crate::pds::swell::axis_factors;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::{AirshipBlueprint, AirshipType, ParticleAura};
@@ -228,11 +230,26 @@ fn turns_all_the_way_round(term: &SpinTerm) -> bool {
 /// by at most `1 - cos(pi / 32)` of its radius - under 0.5 %.
 const SWEEP_STEPS: usize = 32;
 
+/// How many steps a swinging part's every vertex is swept through across
+/// its arc, end to end: a floater's 14-degree tentacle swing in steps under
+/// half a degree, whose chords fall short of the arc by under a hundredth
+/// of a millimetre a metre out.
+const ARC_STEPS: usize = 32;
+
+/// How many amounts a swell that keeps its volume is read at across its
+/// range: an axis it does not weight most or least can grow and shrink
+/// between the ends, so the ends alone do not bound it.
+const SWELL_STEPS: usize = 32;
+
 /// The bounds of `root` (her own frame): the mesher's own vertices
 /// ([`primitive_outline`], which reads a sweep's without building its
-/// mesh) through every part's transform - and what a hub that turns all the
-/// way round carries SWEPT round its axis, so her airscrews' whole discs are
-/// in it, not the blades where they happen to stand.
+/// mesh) through every part's transform, and everywhere the clock carries a
+/// moving part: what a hub that turns all the way round carries SWEPT round
+/// its axis, so her airscrews' whole discs are in it, not the blades where
+/// they happen to stand; what a hub that swings carries swept across its
+/// arc; what a slide carries at both ends of its travel; and what a swell
+/// carries at its narrowest and its widest along each axis (#1944, the
+/// floater's pulse).
 ///
 /// Unlike an aircraft's box, which leaves its blades out (owner decision 3
 /// of #1611: a rotor's disc is metres across), an airship's holds them: her
@@ -240,6 +257,35 @@ const SWEEP_STEPS: usize = 32;
 /// rests on her lowest point (#1612) - an ornate Zeppelin's keel engine
 /// turns under her keel.
 fn swept_bounds(root: &Generator) -> Bounds {
+    bounds_of(swept_points(root, &|_| true))
+}
+
+/// The bounds of one `part` of `root`, read in `root`'s frame with every
+/// slide, swell and swing above it: a part the floater hangs under her
+/// moving body and bell is where her box sees it.
+#[cfg(test)]
+fn swept_bounds_of(root: &Generator, part: &Generator) -> Bounds {
+    bounds_of(swept_points(root, &|g| std::ptr::eq(g, part)))
+}
+
+/// The box round `points`.
+fn bounds_of(points: Vec<Vec3>) -> Bounds {
+    let first = *points.first().expect("she draws something");
+    points.into_iter().fold(
+        Bounds {
+            min: first,
+            max: first,
+        },
+        |b, p| Bounds {
+            min: b.min.min(p),
+            max: b.max.max(p),
+        },
+    )
+}
+
+/// Every point [`swept_bounds`] reads in `root`, but only of the parts
+/// `keep` names and what they carry: every part, for her box.
+fn swept_points(root: &Generator, keep: &dyn Fn(&Generator) -> bool) -> Vec<Vec3> {
     /// What a primitive draws, in its own frame: the mesher's own vertices -
     /// but for an untortured, uncut superellipsoid, the eight corners of its
     /// half-extents. It lies inside them and touches every face, so they
@@ -264,62 +310,153 @@ fn swept_bounds(root: &Generator) -> Bounds {
         }
         primitive_outline(kind)
     }
+    /// The least and the most each of a swell's axes reaches on its
+    /// authored size, at every amount its terms can reach - by
+    /// [`axis_factors`], the formula the runtime draws by - or `None` for a
+    /// swell that changes nothing.
+    fn swell_reach(swell: &crate::pds::Swell) -> Option<(Vec3, Vec3)> {
+        if !swell.moves() {
+            return None;
+        }
+        let weights = swell.held_weights();
+        let (lo, hi) = swell.amount_range();
+        let steps = if swell.keep_volume { SWELL_STEPS } else { 1 };
+        let amounts = (0..=steps)
+            .map(|k| lo + (hi - lo) * k as f32 / steps as f32)
+            .chain([0.0]);
+        let factors = amounts.map(|a| Vec3::from(axis_factors(weights, swell.keep_volume, a)));
+        Some(factors.fold(
+            (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+            |(lo, hi), f| (lo.min(f), hi.max(f)),
+        ))
+    }
+    /// The furthest a swing's clock terms turn its part either way
+    /// (degrees): its swings' and wobbles' amplitudes summed - or `None`
+    /// for a spin with none. A lean, a sway in the wind and a steer follow
+    /// her motion, the wind and her turning rather than the clock, and are
+    /// held near the drawn pose (the floater's tentacles lean a few degrees
+    /// as she sets off): they widen nothing.
+    fn arc_of(spin: &crate::pds::Spin) -> Option<f32> {
+        let arc: f32 = spin
+            .terms
+            .iter()
+            .filter(|t| t.moves())
+            .map(|t| match t {
+                SpinTerm::Swing { amplitude, .. } | SpinTerm::Wobble { amplitude, .. } => {
+                    amplitude.0.abs()
+                }
+                _ => 0.0,
+            })
+            .sum();
+        (arc > 0.0 && arc.is_finite()).then_some(arc)
+    }
     /// Everything `part` draws - its own primitive and every child's - into
-    /// `out` through `parent`. A spin turns the node about its own axis
-    /// between its rotation and its scale, as the runtime poses it
-    /// (`rotation * spin`, then the scale), so what it draws is gathered in
-    /// its scaled frame and each point swept round that axis through its
-    /// origin before the node is placed.
-    fn points_of(part: &Generator, parent: Affine3A, out: &mut Vec<Vec3>) {
+    /// `out` through `parent`, if `kept` (an ancestor was kept) or `keep`
+    /// names it. A spin turns the node about its own axis between its
+    /// rotation and its scale, as the runtime poses it (`rotation * spin`,
+    /// then the scale), and a swell multiplies that scale, so what it draws
+    /// is gathered in its scaled frame, stretched to each corner of the
+    /// swell's reach, and each point swept round that axis through its
+    /// origin before the node is placed - at both ends of its slide, which
+    /// moves it along its axis turned by its rotation alone.
+    fn points_of(
+        part: &Generator,
+        parent: Affine3A,
+        keep: &dyn Fn(&Generator) -> bool,
+        kept: bool,
+        out: &mut Vec<Vec3>,
+    ) {
+        let kept = kept || keep(part);
         let t = &part.transform;
         let scaled = Affine3A::from_scale(Vec3::from(t.scale.0));
-        let placed = parent
-            * Affine3A::from_rotation_translation(
-                Quat::from_array(t.rotation.0).normalize(),
-                Vec3::from(t.translation.0),
-            );
-        let mut drawn: Vec<Vec3> = outline(&part.kind)
-            .into_iter()
-            .map(|p| scaled.transform_point3(p))
-            .collect();
+        let rotation = Quat::from_array(t.rotation.0).normalize();
+        let translation = Vec3::from(t.translation.0);
+        let placed = parent * Affine3A::from_rotation_translation(rotation, translation);
+        let mut drawn: Vec<Vec3> = if kept {
+            outline(&part.kind)
+                .into_iter()
+                .map(|p| scaled.transform_point3(p))
+                .collect()
+        } else {
+            Vec::new()
+        };
         for child in &part.children {
-            points_of(child, scaled, &mut drawn);
+            points_of(child, scaled, keep, kept, &mut drawn);
         }
-        // Only a part that turns all the way round sweeps a disc: a swing, a
-        // lean, a sway in the wind or a wander holds near its drawn pose - a
-        // floater's tentacles - and a steer within its limit.
-        let axis = part
-            .spin
-            .as_ref()
+        if let Some((least, most)) = part.swell.as_ref().and_then(swell_reach) {
+            drawn = drawn
+                .into_iter()
+                .flat_map(|p| {
+                    (0..8).map(move |corner| {
+                        let pick = |bit: u32, axis: usize| {
+                            p[axis]
+                                * if corner & bit == 0 {
+                                    least[axis]
+                                } else {
+                                    most[axis]
+                                }
+                        };
+                        Vec3::new(pick(1, 0), pick(2, 1), pick(4, 2))
+                    })
+                })
+                .collect();
+        }
+        // A part that turns all the way round sweeps a disc; one that swings
+        // on the clock sweeps its arc.
+        let spin = part.spin.as_ref();
+        let axis = spin
             .filter(|s| s.terms.iter().any(turns_all_the_way_round))
             .map_or(Vec3::ZERO, |s| Vec3::from(s.axis.0).normalize_or_zero());
-        if axis == Vec3::ZERO {
-            out.extend(drawn.into_iter().map(|p| placed.transform_point3(p)));
-            return;
+        let arc = spin.and_then(|s| {
+            let axis = Vec3::from(s.axis.0).normalize_or_zero();
+            (axis != Vec3::ZERO).then_some(axis).zip(arc_of(s))
+        });
+        if axis != Vec3::ZERO {
+            let (u, v) = axis.any_orthonormal_pair();
+            drawn = drawn
+                .into_iter()
+                .flat_map(|p| {
+                    let along = axis * p.dot(axis);
+                    let r = (p - along).length();
+                    (0..SWEEP_STEPS).map(move |k| {
+                        let a = k as f32 * std::f32::consts::TAU / SWEEP_STEPS as f32;
+                        along + (u * a.cos() + v * a.sin()) * r
+                    })
+                })
+                .collect();
+        } else if let Some((axis, arc)) = arc {
+            let turns: Vec<Quat> = (0..=ARC_STEPS)
+                .map(|k| {
+                    let a = (-arc + 2.0 * arc * k as f32 / ARC_STEPS as f32).to_radians();
+                    Quat::from_axis_angle(axis, a)
+                })
+                .collect();
+            drawn = drawn
+                .into_iter()
+                .flat_map(|p| turns.iter().map(move |q| *q * p))
+                .collect();
         }
-        let (u, v) = axis.any_orthonormal_pair();
-        for p in drawn {
-            let along = axis * p.dot(axis);
-            let r = (p - along).length();
-            for k in 0..SWEEP_STEPS {
-                let a = k as f32 * std::f32::consts::TAU / SWEEP_STEPS as f32;
-                out.push(placed.transform_point3(along + (u * a.cos() + v * a.sin()) * r));
+        let slide = part.slide.as_ref().filter(|s| s.moves()).and_then(|s| {
+            let along = Vec3::from(s.axis.0).normalize_or_zero();
+            (along != Vec3::ZERO).then(|| (along, s.offset_range()))
+        });
+        match slide {
+            None => out.extend(drawn.into_iter().map(|p| placed.transform_point3(p))),
+            Some((along, (near, far))) => {
+                for offset in [near, far] {
+                    let moved = parent
+                        * Affine3A::from_rotation_translation(
+                            rotation,
+                            translation + rotation * (along * offset),
+                        );
+                    out.extend(drawn.iter().map(|p| moved.transform_point3(*p)));
+                }
             }
         }
     }
     let mut points = Vec::new();
-    points_of(root, Affine3A::IDENTITY, &mut points);
-    let first = *points.first().expect("she draws something");
-    points.into_iter().fold(
-        Bounds {
-            min: first,
-            max: first,
-        },
-        |b, p| Bounds {
-            min: b.min.min(p),
-            max: b.max.max(p),
-        },
-    )
+    points_of(root, Affine3A::IDENTITY, keep, false, &mut points);
+    points
 }
 
 /// The seeded ship for `seed` as her type draws her, her own frame - and
