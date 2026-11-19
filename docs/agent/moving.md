@@ -120,6 +120,13 @@ too.
   leg from the stuck spot stuck with it (Atrium, live session 25). Round a
   round thing in 8 or more points: four at 90 degrees cut chords inside it
   (a lap at radius 5.7 dips to 4.0 midway, inside a 4.2 m fountain basin).
+- **A person does not step up 11 cm.** Strata's park pavilion, its deck 11
+  cm over the lawn, stopped the live capsule at its edge though the
+  builder's check allowed steps to 0.15 m; lowered to 3 cm over the lawn,
+  the walk arrived on it (Atrium, live session 26). Paving lips of 3 cm
+  pass. Keep any edge a visitor must step over at about 5 cm or less, or
+  ramp it - and a straight leg toward a column's base stops at its corner
+  (the grids of an enclosed level put one every 30 m).
 - A restart puts the body back at the landing point: walk back before
   looking at what you built.
 

@@ -329,6 +329,10 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   - a spin's constant `rate` is held to 1440 deg/s either way
     (`MAX_SPIN_RATE_DEG`): Atrium's drone props written at 1800 came back
     at 1440. Four turns a second already blurs a prop at 60 frames.
+  - a Brick texture's `aspect_ratio` is held to 4.0: Strata's library
+    shelves, book spines drawn as bricks at 5.0, came back as 4.0 (live
+    session 26); a ChainLink's `cell_count` came back as 16 from 32, so a
+    17 m fence panel draws diamonds about a metre across.
   - every primitive dimension, a world's as a body's, is held to at least
     1 cm: the Sump's 8 mm cable radii came back as 10 mm.
   - a BlobGroup ELEMENT's position is held within 100 m of its group's

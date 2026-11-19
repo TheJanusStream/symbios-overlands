@@ -769,7 +769,11 @@ Cross-theme, Monument). In the World Editor: Environment, Name and banner.
   look; never the scene (no screen-space reflections). Still water under a
   grey sky is a grey sheet whatever its settings: the sky's own colour in
   the near water, its hazy horizon toward the far shore. Do not tune it
-  hoping for reflections of things; dress its margin.
+  hoping for reflections of things; dress its margin. Water under a roof
+  mirrors the sky too: Strata's cistern, under the Works' slab in the dark
+  Sump, shows a pale sky sheen at grazing angles and reads as a pale slab
+  from eye height across it (live session 26); finer, choppier ripples and
+  lamps hung over it break it up, and from above it reads as water.
 - **The normal scales are tiling FREQUENCIES (per metre), not strengths**:
   the ripple's strength is fixed in the shader. The Understory's pool at
   `near` 0.35 drew 3 m ripples and read as a choppy grey sea; `near` 12,
@@ -1475,7 +1479,12 @@ real numbers instead - every `room set` and `avatar set` answer carries
 `record_size` (`largest`: the record, in the words a refused save would use;
 `bytes`; `budget_bytes`; `over` past it), and `status.editing.record_size`
 has the room, the avatar and the inventory (#1455). The avatar is ONE record,
-so a detailed body spends its budget fastest (Hypha's: 42 KB).
+so a detailed body spends its budget fastest (Hypha's: 42 KB). A big world
+fills its manifest by PLACEMENTS: Atrium's Strata reached 80 KB of it at 263
+placements (about 214 bytes each, live session 26), with a fifth of its live
+ceiling still free - from there a district rations placements, not bytes:
+instance sets for repeats, and pieces that stand together assembled into one
+absolute generator.
 
 **A second ceiling: the whole world, sent live.** Every live edit is sent to
 the players in the world as the WHOLE record in one message, and past

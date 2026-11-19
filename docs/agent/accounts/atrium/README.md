@@ -13,8 +13,12 @@ its walkable shell and every level's inhabited heart, the Sump, the Works,
 the Terraces and the Crown with its 149 m spire - each walked live and
 saved; then the owner's first visit and five fixes they asked for in chat,
 the body and then its drone reworked among them, and the world given its
-own name and banner (the world last saved 2026-11-19 00:14, seq 336; the
-avatar 00:37, seq 339).
+own name and banner. Its second session (live 26) filled every level's
+outer hall with districts in that level's wealth - the Sump's Cistern
+Quarter, Stacks and Rag Town; the Works' farms, warehouses and power
+hall; the Terraces' Market Street, library, park and homes - each walked
+live (the world last saved 2026-11-19 04:17, seq 293 of session 1034's
+daemon; the avatar 00:37, seq 339 of session 1032's).
 
 ## Start here
 
@@ -24,8 +28,8 @@ avatar 00:37, seq 339).
 | Commands | every agent command takes `--account atrium-ai.bsky.social` (the wrapper `exports/atrium/A` carries it); every tool call starts `AGENT_ACCOUNT=atrium-ai.bsky.social` ([../../session.md](../../session.md)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | Strata, its own world (`did:plc:v6ftr6n6g54bbxmqpaeik3dv`) |
-| Working folder | `exports/atrium/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/avatar.py` the body's dress and the drone (session 1032's first body), `b/avatar2.py` the body as reworked (the sculpt, the refitted visor, the kit; it takes the drone from `b/drone2.py`, the rebuilt drone and its flight, reads `src/avatar.json` and writes `gen/avatar2/`: `sculpt.json`, `worn.json` (item, socket and generator file per worn slot), one generator file per item and `1032/avatar2/test.json` for `render --rigged`), `b/motion_sim.py` (a copy of Kairos's motion sampler; the drone's sweep is `1032/drone/tools/sweep.py`), `b/markers.py` socket markers (from Reeve's folder), `b/landscan.py` the flat-centre seed scan; the shell `b/strata_common.py` (every dimension and material), `b/shell_*.py`, `b/shell_build.py` writing `b/shell.edits`, its check `b/shell_check.py`; the Sump `b/sump_*.py`, `b/sump_build.py` writing `b/sump.edits`, its check `b/sump_check.py`; the Works `b/works_*.py` (`b/works.edits`, `b/works_check.py`); the Terraces `b/terr_*.py` (`b/terraces.edits`, `b/terr_check.py`; `b/terr_garden_fix.edits` the re-centred seedling rows); the Crown `b/crown_*.py` (`b/crown.edits`, `b/crown_check.py`); `b/arrival_fix.edits` the moved portal, monument and banner and the landing's pitch -4; the owner's fixes `b/bench_fix.edits`, `b/bench_fix2.edits`, `b/bench_fix3.edits` (the three bench models), `b/lounger_fix.edits`, `b/rails_fix.edits` (the sheared ramp rails: `strata_well1-3`) and `b/gate_uv_fix.edits` (the gate and door panels), each setting whole generators the fixed builders write (the applied edits files have their `/placements/-` lines rewritten to the indices they landed at: re-running one sets, never appends; re-running a `*_build.py` writes appends again, so set single placements by index instead); `b/banner.py` the world's name, banner and steel standard (`b/banner.edits`: `/identity`, `/generators/world_banner`, the standard's spot); the last saves: the world `src/room.json` (2026-11-19 00:14, seq 336 of session 1032's daemon: the name and banner; seq 310 the gate seams, 296 the rails, 294 the sun-beds, 291 the benches, 288 the Crown and the arrival, 172 the Terraces, 108 the Works, 37 the Sump, 24 the shell, 2 the land), the avatar `src/avatar.json` (2026-11-19 00:37, seq 339: the rebuilt drone; seq 318 at 23:54 the rework, seq 4 at 17:33 the first body), the inventory 23:54 (seq 317: ten Traveler's Satchels, `_1` to `_9` and the unsuffixed first, the worn items' sources); the seeded records `src/room_seeded.json` and `src/avatar_seeded.json`; the save log `log.md`. `1032/` is the first session's scratchpad (briefs, renders, records before each step), read-only |
-| Last session | chainlink session 1032 (live session 25, the first), parent #1946 - read its comments (`chainlink show 1946`): the owner's decisions and the concept |
+| Working folder | `exports/atrium/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/avatar.py` the body's dress and the drone (session 1032's first body), `b/avatar2.py` the body as reworked (the sculpt, the refitted visor, the kit; it takes the drone from `b/drone2.py`, the rebuilt drone and its flight, reads `src/avatar.json` and writes `gen/avatar2/`: `sculpt.json`, `worn.json` (item, socket and generator file per worn slot), one generator file per item and `1032/avatar2/test.json` for `render --rigged`), `b/motion_sim.py` (a copy of Kairos's motion sampler; the drone's sweep is `1032/drone/tools/sweep.py`), `b/markers.py` socket markers (from Reeve's folder), `b/landscan.py` the flat-centre seed scan; the shell `b/strata_common.py` (every dimension and material), `b/shell_*.py`, `b/shell_build.py` writing `b/shell.edits`, its check `b/shell_check.py`; the Sump `b/sump_*.py`, `b/sump_build.py` writing `b/sump.edits`, its check `b/sump_check.py`; the Works `b/works_*.py` (`b/works.edits`, `b/works_check.py`); the Terraces `b/terr_*.py` (`b/terraces.edits`, `b/terr_check.py`; `b/terr_garden_fix.edits` the re-centred seedling rows); the Crown `b/crown_*.py` (`b/crown.edits`, `b/crown_check.py`); `b/arrival_fix.edits` the moved portal, monument and banner and the landing's pitch -4; the owner's fixes `b/bench_fix.edits`, `b/bench_fix2.edits`, `b/bench_fix3.edits` (the three bench models), `b/lounger_fix.edits`, `b/rails_fix.edits` (the sheared ramp rails: `strata_well1-3`) and `b/gate_uv_fix.edits` (the gate and door panels), each setting whole generators the fixed builders write (the applied edits files have their `/placements/-` lines rewritten to the indices they landed at: re-running one sets, never appends; re-running a `*_build.py` writes appends again, so set single placements by index instead); `b/banner.py` the world's name, banner and steel standard (`b/banner.edits`: `/identity`, `/generators/world_banner`, the standard's spot); the outer districts of session 1034 (live 26): the Sump's `b/sumpout_*.py` (`b/sumpout_build.py` writing `b/sumpout.edits` and `gen/sumpout/`, its check `b/sumpout_check.py` with the routes in `b/sumpout_routes.py`, a top-down plan tool `b/sumpout_plan.py`), the Works' `b/worksout_*.py` (the same shape: `b/worksout_build.py`, `b/worksout.edits`, `gen/worksout/`, `b/worksout_check.py`, `b/worksout_routes.py`, `b/worksout_plan.py`), the Terraces' `b/terrout_*.py` (the same, with `b/terrout_account.py`; `1034/terrout/run.sh` rebuilds, composes and checks; `b/terrout.edits.applied` the applied file with its indices, `b/terrout_deckfix.edits` the pavilion's lowered deck - a re-run of a `*_build.py` writes appends again, so keep the applied file as `b/<name>.edits.applied`, restore it after the rebuild and set the changed generator and placement by index as that file does), `b/sound.py` the outer districts' sounds (`b/sound.edits`: six generators, each from its builder's own output with a sound copied from one the world had), `b/trim.py` the torus trim (`b/trim.edits`: the fire barrels and the standard; run it again after any re-run of `b/sump_build.py`, which writes the Catalogue's barrel fire back); the last saves: the world `src/room.json` (2026-11-19 05:11, seq 295 of session 1034's daemon: two more sounds and the trim; seq 294 at 04:23 the first sounds and the cistern's pipe caps; seq 293 at 04:17 the Terraces' outer districts; seq 189 at 03:17 the Works', seq 84 at 02:18 the Sump's; before them seq 336 of session 1032's at 00:14, the name and banner; seq 310 the gate seams, 296 the rails, 294 the sun-beds, 291 the benches, 288 the Crown and the arrival, 172 the Terraces, 108 the Works, 37 the Sump, 24 the shell, 2 the land), the avatar `src/avatar.json` (2026-11-19 00:37, seq 339: the rebuilt drone; seq 318 at 23:54 the rework, seq 4 at 17:33 the first body), the inventory 23:54 (seq 317: ten Traveler's Satchels, `_1` to `_9` and the unsuffixed first, the worn items' sources); the seeded records `src/room_seeded.json` and `src/avatar_seeded.json`; the save log `log.md`. `1032/` is the first session's scratchpad (briefs, renders, records before each step), read-only |
+| Last session | chainlink session 1034 (live session 26), parent #1947 - read its comments (`chainlink show 1947`): the review, phase 2's concept (the outer districts) and each level's build; before it session 1032 (live 25, the first), #1946: the owner's decisions and the first concept |
 | Default mode | [self-guided](../../session.md#self-guided), building Strata level by level in the order a visitor climbs |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's (Ashmere, [reeve/](../reeve/README.md)), Jink's (Parabola Flats, [jink/](../jink/README.md)), Eigen's (Isoline, [eigen/](../eigen/README.md)), Catoid's (Purlieu, [catoid/](../catoid/README.md)) or Kairos's ([kairos/](../kairos/README.md)); close a live session's parent before the owner has committed its work |
 
@@ -197,6 +201,10 @@ whatever `/identity` holds.
 | The market avenue | 0, 236 to 34 | the Sump's 16 m column-free street: stacked containers 2-4 high, stalls, kiosks, neon blade signs, cables of bulbs, pipes with steam and a drip, a STRATA advert at (0, 112) | 1032 |
 | The well's foot | 0, 30 to -30 | the atrium's floor under the light column: soup kitchen (x 16-21.6, z 6.5-16), tap (3.5, 8), fire circle (-6, 2), sleepers, shacks round the east and north edges | 1032 |
 | Alleys | E180 to x 70, W120 to x -76, E60 to x 48 | shanty lanes off the avenue, washing lines, bulbs | 1032 |
+| The Cistern Quarter (L0) | x -75 to 75, z -30 to -239 | the north half: the cistern pool (x -28 to 28, z -126 to -56, the columns standing in the water) with a pump gantry at z -91 (flywheel, steam, two sodium lamps over the water), four pump houses at (+-60, -60) and (+-60, -120), risers and mains into the ceiling, container homes and a catwalk; the scrap market on the north way (x -4 to 4 kept clear) with heaps and a derrick whose magnet swings; the scrap chapel at (-30, -210), door east, rose window, bell, neon cross | 1034 |
+| The Stacks (L0) | x 75 to 239, the east gate street z -6 to 6 | container homes 3-4 high fronting the street, catwalks and ladders, laundry, bulb cables across at 5.7 m, a neon blade sign at (122, 7.3), container-wall blocks (a container-sized Brick texture) in the cells either side | 1034 |
+| Rag Town (L0) | x -80 to -239, the west gate street | tarp and plank shanties, tents, four burning drums at the cross streets, the walk-in clinic tent at (-120, -10), the soup line at (-150, 8), shanty blocks either side | 1034 |
+| Gate yards (L0) | inside the E, W and N gates | checkpoint booths at E (235.5, 9.2), W (-235.5, -9.2), N (9.2, -235.5) with lit amber signs and raised booms, shacks backed onto the wall | 1034 |
 | The Atrium | 0, 0 | the 60 m light well; ramps R1 (west then north walls, L0 to L1), R2 (east then south, L1 to L2), R3 (west then north, L2 to the Crown), two 10-degree flights each; level landings NE1 (L1, 18), SW2 (L2, 36), NE3 (Crown, 54) | 1032 |
 | The Rim Promenade (L1) | ring 30.4 to 36.5 m round the well, y 18 | lamps in planters, benches, coin telescopes | 1032 |
 | The Exchange (L1) | x -13 to 43, z -48 to -73 | covered market of 32 lit stalls, a canteen (x -13 to 2.5) with menus and pendants, an info pylon at (23.2, -59.85); entrance at (23.2, -48.6) | 1032 |
@@ -206,12 +214,20 @@ whatever `/identity` holds.
 | The fabrication cell (L1) | x 78 to 102, z -50 to -73 | a drone chassis on a turntable, four welding arms with flickering tips, gate at (79.5, -61.5) | 1032 |
 | The cargo depot (L1) | x 78 to 102, z -17 to -40 | a shed on a dock with roller doors, a lit drone pad, circling drones | 1032 |
 | The Works' east terrace | out of the door at (180, 0) | benches and telescopes over the plain | 1032 |
+| The Hydroponic Farms (L1) | x -38 to -179.5, the Farm Avenue at z -5 to 5 | the farm gate at x -38.5 (a sprout emblem in a magenta ring), grow racks in tiers under magenta strips either side of the avenue, six rack fields with walkways at z +-24.1, a tank yard and the pump booth at (-53.2, 29.5), the packing shed at (-58, -31) with a belt, grow lamps, misting lines, sealed grow halls further out | 1034 |
+| The Warehouses (L1) | z 40 to 179.5, the Freight Aisle at x -5 to 5 | an amber board over the aisle, a loader lane (x 5.6 to 8.8) of five shuttling loaders, the dispatch office at (25.5, 60), the open store at (30, 120) with racked aisles, the freight lift at (-27, 90) carrying a container 0.1 to 13.1 m every 26 s, storage blocks with roller doors, container yards | 1034 |
+| The Power Hall (L1) | north of the heart (z under -80) and east of it (x over 105) | the reactor at (0, -120): two counter-turning cyan rings round a banded core, a guard wall, the heart's hum; the control room at (28.5, -120) facing it; eight fenced transformer yards, switch houses, cable trays 8 m up, bolt boards | 1034 |
 | The Rim Walk (L2) | ring 30.4 to 37 m round the well, y 36 | lanterns, trees in limestone planters, benches, flower troughs | 1032 |
 | Fountain Square (L2) | x -43.5 to -16.5, z 37 to 73.5 | honey paving, the fountain at (-30, 57) with the Catalogue's jet and water sound, benches | 1032 |
 | The Square Row (L2) | (0, 60) | shops and flats (grammar), a cafe terrace at x -10.5 with parasol lanterns and a swinging sign, a fruit stand | 1032 |
 | Apartment blocks (L2) | A1 (-60, 30), A2 (-60, 0) and nine more west and south | 2 to 4 storeys, one grammar generator with variants: lit windows, planted balconies, doors with lamps | 1032 |
 | School and clinic (L2) | school (-30, 94), clinic (0, 94) | the school's yard with a gate clock and a turning roundabout; the clinic's green cross at (6, 85) | 1032 |
 | The terrace garden (L2's terrace) | outside the south door, z 120.6 to 176.6 | raised beds, fruit trees, a greenhouse with a swinging vane, a pinwheel, benches over the plain | 1032 |
+| The Market Street (L2) | the north door's axis, x -7 to 7, z -37 to -117 | a lit gateway at z -38.6, 16 shopfronts with lit windows, fascias and awnings under cream upper storeys, the florist (east row) and the bakery (west row) with blade signs, lanterns, benches, cafe tables, a plaza at the north door | 1034 |
+| The library (L2) | x -38 to -22, z -51.5 to -68.5, its square to z -37 | a portico of four columns with a lit name bar, warm tall windows, a walk-in reading room (doorway x -31.3 to -28.7): shelves on three walls, reading tables with green lamps, a librarian's desk | 1034 |
+| The park (L2) | x 50.5 to 99.5, z -39.5 to 9.5, on the east street to the east door | lawns either side of a walk (x 72 to 78), a long pond (x 54 to 96, z -36 to -27) with lily pads, a timber pavilion at (88, -20) whose deck is 3 cm over the lawn, hedges, benches facing the water, lanterns | 1034 |
+| The outer homes (L2) | 16 cells north-east, south-east and north-west | lighter house blocks (`terrout_house3`, `terrout_house4`: one solid cuboid, a grammar drawing panes, balconies, a door and lamp) with front gardens, and two `terr_block` variants facing the park at (60, 30) and (90, 30) | 1034 |
+| The door belvederes (L2's terrace) | outside the north, east and west doors, 166 to 176 out | a paved way from the door, an 18 x 10 m belvedere, a lantern, four benches facing the plain, a tree | 1034 |
 | The Spire (Crown) | (66, 0) | a marble podium, a pearl shaft to 140 m, leaning fins with glowing edges, three halos, two counter-turning rings, a saucer sky deck at 115.5-122.5 m, a needle and a red pulsing beacon at 148.9 m; uplights and lanterns round its plaza | 1032 |
 | The Long Walk (Crown) | x 30.4 to 54, z -31.5 to -23.5 | glowing bollards from the NE landing to the spire's plaza | 1032 |
 | The Canal Garden (Crown) | x 44 to 100, z -117 to -36 | a reflecting canal (water in a marble box) on the spire's axis, a fountain at its head with the Catalogue jet and water sound, lawns with yews, cypresses and urns, a pergola, pines | 1032 |
@@ -236,7 +252,22 @@ The world 2026-11-18 22:39 (seq 288): live sync 557,459 of 921,600 bytes
 Terraces 91 KB, the Crown 117 KB; about 364 KB left), the largest record the
 manifest at 59,510 of 102,400; after the owner's fixes (23:28, seq 310)
 562,793 (61 %: the sheared rails and the gate panels' face overrides about
-5 KB). Parts (`--triangle-report`, copies one by
+5 KB). Live 26, the Sump's outer districts (2026-11-19 02:18, seq 84):
+647,862 (70 %), triangles on the placements 338,336, parts 7,986 (the
+tightest budget: an instance set counts every prim of every copy), the
+Sump's lights 63, the manifest 70,306. The Works' outer districts (03:17,
+seq 189): 736,748 (80 %), triangles 358,308, parts 9,001, the Works'
+lights 67, the manifest 80,167 of 102,400 - every placement lives in it
+(about 214 bytes each), so placements, not bytes, are the next ceiling.
+The Terraces' outer districts (04:17, seq 293): 806,560 (87.5 %; about
+115 KB left), triangles on the placements 396,846 (with the ground about
+919,000), parts 9,688, the Terraces' lights 62 (Strata about 239 in all,
+the nearest 64 drawn), the manifest 82,592 of 102,400 (about 20 KB, some
+90 placements, left) - its 16 placements held the reused heart pieces in
+one shared set each across districts. After the trim (05:11, seq 295,
+`b/trim.py`: the fire barrels' and the standard's rings from 28 x 10 torus
+segments to 16 x 6) the placements draw 389,118 triangles (911,360 with
+the ground). Parts (`--triangle-report`, copies one by
 one): the shell 2,479, with the Sump 4,081, the Works 5,129, the Terraces
 6,034, the Crown 6,783; triangles on the placements about 310,000 (the
 Terraces' blocks 82k and soft-blob trees and greens about 60k: the place to
@@ -320,6 +351,23 @@ scratchpad (briefs, renders, the seed scans).
   sweep), set live clean and saved 00:37. Meanwhile, self-guided: the
   world named Strata with its own banner (00:14), and the conveyor shop
   walked into its back half - the passage was fine, my old route not.
+- **1034 - 2026-11-19, live 26, #1947, self-guided.** The owner: "Please
+  log in Atrium again and continue the work". The review found every
+  level's heart complete and every outer hall a bare forest of columns;
+  phase 2 of the concept, THE OUTER DISTRICTS, built in one sitting by
+  three sequential offline builders, each applied, walked live along all
+  its routes and saved: the Sump's (464k tokens, 52 min: the Cistern
+  Quarter, the Stacks, Rag Town, the gate yards; saved 02:18), the Works'
+  (380k, 39 min: the Hydroponic Farms, the Warehouses, the Power Hall;
+  03:17) and the Terraces' (410k, 42 min: the Market Street, the library,
+  the park, the outer homes, the door belvederes; 04:17) - 251 KB, 125
+  placements and 60 lights in all; 286 legs walked live, one stopped
+  short (the pavilion). Failed at first: the
+  pavilion's 11 cm deck stopped the live capsule (lowered to 3 cm); the
+  library's book texture's aspect ratio of 5.0 was clamped to 4.0. The
+  manifest, one record holding every placement, became the next ceiling
+  (82.6 KB of 102.4): the Terraces kept to 16 placements by holding every
+  reused heart piece in one shared set. The owner did not visit.
 
 ## Open threads
 
@@ -330,8 +378,23 @@ scratchpad (briefs, renders, the seed scans).
   engine's outfit is close-fitting only.
 - Triangles: the Terraces' soft-blob tree crowns and greens (about 60k) are
   the first to lighten if the web strains.
-- The outer halls of every level are bare beyond each heart (by design,
-  within the budget): about 364 KB of the live ceiling is left for later
-  districts.
+- The budget's last fifth: about 115 KB of the live ceiling and 20 KB of
+  the manifest (some 90 placements) are left after phase 2, and the
+  placements draw about 397,000 triangles over the ground's 522,000 -
+  keep the rest for the owner's asks, and trim before adding much more
+  (the barrel fires' and the banner's rings are done, 05:11; next the
+  Terraces' soft-blob trees, 616 triangles a copy x 58, and the heart's
+  `terr_block`, 5,880 a copy x 16 - 94,000, the largest single cost).
+- Sound in the outer districts is sparse: the reactor's hum, and since
+  04:23 and 05:11 (`b/sound.py`) Rag Town's crackling drums, the cistern
+  pump's, the freight lift's and the loader lane's hum, the farms' misting
+  hiss and the park pond's water - each copied from a sound the world
+  already had; none on the Market Street or in the Stacks' street beyond
+  the neon sign's hum.
+- The Works' loaders and lift deck have no colliders (a moving part never
+  does): visitors pass through them; the misting lines' particles were
+  faint offline (opacity 0.24, 22 a second): unseen live.
+- The cistern's water reads as a pale slab from eye height across it (the
+  water shader mirrors only the sky, even under a roof): unseen live.
 - Snow: the Crown and the terrace gardens are open to the sky; how the
   winter garden reads under settled snow has not been seen live.
