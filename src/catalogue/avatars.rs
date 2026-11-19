@@ -464,7 +464,10 @@ pub static AVATARS: [AvatarEntry; 45] = [
         "Young woman",
         "A young woman on foot, with a face, hair and clothes of her own.",
         (Frame::Feminine, Age::Young, Build::Any),
-        1_840_068,
+        // Moved from 1_840_068 by engine generation 12 (#1953), which rolls
+        // that start's seed a masculine frame: this seed draws a woman of 25
+        // under generations 11 and 12 both (femininity 1.613 and 1.898).
+        1_839_987,
     ),
     AvatarEntry::person(
         "avatar_person_young_man",

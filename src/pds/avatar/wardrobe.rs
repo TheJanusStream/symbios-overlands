@@ -1237,6 +1237,42 @@ pub fn engine_default_for_seed(seed: u64) -> EngineAvatarRecord {
     record
 }
 
+/// The motion instruments' body: the one engine generation 11 rolled for
+/// `did:plc:stop-test` through [`engine_default_for_did`], pinned rather
+/// than rolled. Test-only.
+///
+/// **Pinned since generation 12** (symbios-avatar #486, #1953), which
+/// re-rolled every person: this identity now rolls a masculine 1.715 m body
+/// where it rolled a feminine 1.562 m one, and every bound the walk, turn,
+/// swim and gesture harnesses hold is an absolute length read off the
+/// 1.562 m body - #1323's agreed 420 mm for the planted soles through a
+/// switch, the bow's 20 mm, the crown against the waterline among them. On
+/// the taller body those readings scale with its stature and fail, which
+/// says the body changed and not the motion; a re-roll must not move an
+/// instrument. So the four composites and the stature are set to what
+/// generation 11 drew, as the engine's own driver tests pin theirs
+/// (`stop_test_body` in symbios-avatar's `tests/driver.rs`), and every
+/// other axis comes from the roll unchanged: the per-region offsets read no
+/// femininity, so this reproduces generation 11's body - its shape, stature
+/// and skeleton - exactly under either engine. What generation 12 still
+/// draws its own way is the hair (a beard among it, from the masculine roll
+/// the pin overrides) and the blush, none of which the rig or the motion
+/// reads. `the_stop_test_pin_is_generation_elevens_roll` holds the pin to
+/// the roll while the engine is generation 11.
+#[cfg(test)]
+pub(crate) fn stop_test_body() -> EngineAvatarRecord {
+    let mut record = engine_default_for_did("did:plc:stop-test");
+    record.composites.femininity = 0.743;
+    record.composites.mass = -1.023;
+    record.composites.body_fat = 0.060;
+    record.composites.age = 38;
+    if let symbios_avatar::Archetype::Humanoid(params) = &mut record.archetype {
+        params.height = 1.562;
+    }
+    record.sanitize();
+    record
+}
+
 /// The engine body the seeded four-legged family builds through (#1808): the
 /// engine's own roll, which mixes dogs, cats, horses and their crosses as it
 /// does for an editor's re-roll (owner decision D10).
@@ -1810,6 +1846,22 @@ mod tests {
                 "seed {seed} stands {:.2} m, outside {low:.2}..{high:.2}",
                 params.height
             );
+        }
+    }
+
+    /// The pinned instrument body is the very record generation 11 rolls
+    /// for its identity (#1953), so pinning it moved nothing the bounds were
+    /// read off. Only a generation-11 engine can say so: under a later one
+    /// the roll is a different body, which is why the pin exists.
+    #[test]
+    fn the_stop_test_pin_is_generation_elevens_roll() {
+        let pinned = stop_test_body();
+        assert!(matches!(
+            pinned.archetype,
+            symbios_avatar::Archetype::Humanoid(_)
+        ));
+        if symbios_avatar::GENERATOR_VERSION == 11 {
+            assert_eq!(pinned, engine_default_for_did("did:plc:stop-test"));
         }
     }
 

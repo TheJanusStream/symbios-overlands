@@ -2,7 +2,7 @@ use super::build::rigged_root_transform;
 use super::*;
 use crate::pds::AvatarRecord;
 use crate::pds::avatar::ResolvedRig;
-use crate::pds::avatar::wardrobe::engine_default_for_did;
+use crate::pds::avatar::wardrobe::{engine_default_for_did, stop_test_body};
 use crate::player::emote::Emote;
 use crate::state::{LiveAvatarRecord, LocalPlayer};
 use bevy::ecs::system::RunSystemOnce;
@@ -777,7 +777,7 @@ fn skate_through(
         .spawn((Transform::default(), GlobalTransform::default()))
         .id();
     let avatar = symbios_avatar::Avatar::build_with(
-        &engine_default_for_did("did:plc:stop-test"),
+        &stop_test_body(),
         &symbios_avatar::AvatarConfig {
             atlas: 64,
             ..Default::default()
@@ -1089,7 +1089,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
         .spawn((Transform::default(), GlobalTransform::default()))
         .id();
     let avatar = symbios_avatar::Avatar::build_with(
-        &engine_default_for_did("did:plc:stop-test"),
+        &stop_test_body(),
         &symbios_avatar::AvatarConfig {
             atlas: 64,
             ..Default::default()

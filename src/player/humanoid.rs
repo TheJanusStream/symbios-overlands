@@ -1674,7 +1674,7 @@ mod turning {
     use super::*;
     use crate::pds::AvatarRecord;
     use crate::pds::avatar::EngineAvatarRecord;
-    use crate::pds::avatar::wardrobe::engine_default_for_did;
+    use crate::pds::avatar::wardrobe::stop_test_body;
     use crate::player::rigged::{INSTRUMENT_SEED, RiggedRoot, drive_frame, install_built_body};
     use bevy::ecs::system::RunSystemOnce;
     use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
@@ -1877,8 +1877,9 @@ mod turning {
     /// Installs `body` at atlas 64 under `chassis`, with its driver built from
     /// `config` on [`INSTRUMENT_SEED`]. Returns the rigged root.
     ///
-    /// The turning harness passes the stop instrument's body
-    /// (did:plc:stop-test), so every instrument reads one skeleton. Seed
+    /// The turning and swimming harnesses pass the stop instrument's body
+    /// (did:plc:stop-test, pinned to its generation-11 roll by
+    /// [`stop_test_body`], #1953), so every instrument reads one skeleton. Seed
     /// pinned by hand: `install_built_body` seeds off a process-wide counter,
     /// and `Driver::new` with the default config is `Driver::seeded` to the
     /// field.
@@ -1986,7 +1987,7 @@ mod turning {
             &mut app,
             chassis,
             offset,
-            &engine_default_for_did("did:plc:stop-test"),
+            &stop_test_body(),
             DriverConfig {
                 carriage: treatment.carriage,
                 pace_response: treatment.pace_response.unwrap_or(shipped.pace_response),
@@ -2983,7 +2984,7 @@ mod surface {
     use super::turning::{HZ, install_instrument_body, walk_app};
     use super::*;
     use crate::pds::AvatarRecord;
-    use crate::pds::avatar::wardrobe::engine_default_for_did;
+    use crate::pds::avatar::wardrobe::stop_test_body;
     use crate::player::rigged::drive_frame;
     use crate::water::{WaterPlane, WaterSurfaces};
     use bevy::ecs::system::RunSystemOnce;
@@ -3121,7 +3122,7 @@ mod surface {
             &mut app,
             chassis,
             height * 0.5,
-            &engine_default_for_did("did:plc:stop-test"),
+            &stop_test_body(),
             DriverConfig::default(),
         );
         let rig = app
