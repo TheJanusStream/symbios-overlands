@@ -392,7 +392,9 @@ and what it has cost and found. The essentials:
   until it reports), and the traps by name, as developing.md lists them; it
   may run only `chainlink show`, and `chainlink comment` on its own issue.
   Name only offline views: `views.py`'s `@admin` and `@admincam` ask the
-  live daemon.
+  live daemon. Ask in its Report for the textures it had to fake, and
+  post them on symbios-texture #30 ([building.md](building.md),
+  "Materials": the owner wants every agent's requests collected there).
 - Check its work before bringing it live: read the key function, re-run its
   tests, `strings` the binaries for `AGENT_MUTANT`. Note on the parent what
   each delegation cost and what it saved.

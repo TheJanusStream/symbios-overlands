@@ -4,8 +4,8 @@ Atrium (@atrium-ai.bsky.social) shepherds Strata, a huge arcology stepped
 like a ziggurat on a frozen plain: four walkable levels from the poor
 undercity at its foot to the gardens and villas of its crown, joined by
 ramps round a great central atrium open to the sky. Its body is a rigged
-person of a moderate build, Strata's steward, in a teal twill jacket, a
-visor that hugs the face and a steward's kit (insignia, tool belt, tablet,
+person of a moderate build, Strata's steward, in a knee-length teal coat
+over a twill jacket, a visor that hugs the face and a steward's kit (insignia, tool belt, tablet,
 shoulder pieces, a back unit that docks its survey drone, boots), the drone
 orbiting over its shoulders. As of 2026-11-18, after its first session
 (live 25): the land made flat, the first mood set, and Strata built whole -
@@ -28,8 +28,8 @@ daemon; the avatar 00:37, seq 339 of session 1032's).
 | Commands | every agent command takes `--account atrium-ai.bsky.social` (the wrapper `exports/atrium/A` carries it); every tool call starts `AGENT_ACCOUNT=atrium-ai.bsky.social` ([../../session.md](../../session.md)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | Strata, its own world (`did:plc:v6ftr6n6g54bbxmqpaeik3dv`) |
-| Working folder | `exports/atrium/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/avatar.py` the body's dress and the drone (session 1032's first body), `b/avatar2.py` the body as reworked (the sculpt, the refitted visor, the kit; it takes the drone from `b/drone2.py`, the rebuilt drone and its flight, reads `src/avatar.json` and writes `gen/avatar2/`: `sculpt.json`, `worn.json` (item, socket and generator file per worn slot), one generator file per item and `1032/avatar2/test.json` for `render --rigged`), `b/motion_sim.py` (a copy of Kairos's motion sampler; the drone's sweep is `1032/drone/tools/sweep.py`), `b/markers.py` socket markers (from Reeve's folder), `b/landscan.py` the flat-centre seed scan; the shell `b/strata_common.py` (every dimension and material), `b/shell_*.py`, `b/shell_build.py` writing `b/shell.edits`, its check `b/shell_check.py`; the Sump `b/sump_*.py`, `b/sump_build.py` writing `b/sump.edits`, its check `b/sump_check.py`; the Works `b/works_*.py` (`b/works.edits`, `b/works_check.py`); the Terraces `b/terr_*.py` (`b/terraces.edits`, `b/terr_check.py`; `b/terr_garden_fix.edits` the re-centred seedling rows); the Crown `b/crown_*.py` (`b/crown.edits`, `b/crown_check.py`); `b/arrival_fix.edits` the moved portal, monument and banner and the landing's pitch -4; the owner's fixes `b/bench_fix.edits`, `b/bench_fix2.edits`, `b/bench_fix3.edits` (the three bench models), `b/lounger_fix.edits`, `b/rails_fix.edits` (the sheared ramp rails: `strata_well1-3`) and `b/gate_uv_fix.edits` (the gate and door panels), each setting whole generators the fixed builders write (the applied edits files have their `/placements/-` lines rewritten to the indices they landed at: re-running one sets, never appends; re-running a `*_build.py` writes appends again, so set single placements by index instead); `b/banner.py` the world's name, banner and steel standard (`b/banner.edits`: `/identity`, `/generators/world_banner`, the standard's spot); the outer districts of session 1034 (live 26): the Sump's `b/sumpout_*.py` (`b/sumpout_build.py` writing `b/sumpout.edits` and `gen/sumpout/`, its check `b/sumpout_check.py` with the routes in `b/sumpout_routes.py`, a top-down plan tool `b/sumpout_plan.py`), the Works' `b/worksout_*.py` (the same shape: `b/worksout_build.py`, `b/worksout.edits`, `gen/worksout/`, `b/worksout_check.py`, `b/worksout_routes.py`, `b/worksout_plan.py`), the Terraces' `b/terrout_*.py` (the same, with `b/terrout_account.py`; `1034/terrout/run.sh` rebuilds, composes and checks; `b/terrout.edits.applied` the applied file with its indices, `b/terrout_deckfix.edits` the pavilion's lowered deck - a re-run of a `*_build.py` writes appends again, so keep the applied file as `b/<name>.edits.applied`, restore it after the rebuild and set the changed generator and placement by index as that file does), `b/sound.py` the outer districts' sounds (`b/sound.edits`: six generators, each from its builder's own output with a sound copied from one the world had), `b/trim.py` the torus trim (`b/trim.edits`: the fire barrels and the standard; run it again after any re-run of `b/sump_build.py`, which writes the Catalogue's barrel fire back); the last saves: the world `src/room.json` (2026-11-19 05:11, seq 295 of session 1034's daemon: two more sounds and the trim; seq 294 at 04:23 the first sounds and the cistern's pipe caps; seq 293 at 04:17 the Terraces' outer districts; seq 189 at 03:17 the Works', seq 84 at 02:18 the Sump's; before them seq 336 of session 1032's at 00:14, the name and banner; seq 310 the gate seams, 296 the rails, 294 the sun-beds, 291 the benches, 288 the Crown and the arrival, 172 the Terraces, 108 the Works, 37 the Sump, 24 the shell, 2 the land), the avatar `src/avatar.json` (2026-11-19 00:37, seq 339: the rebuilt drone; seq 318 at 23:54 the rework, seq 4 at 17:33 the first body), the inventory 23:54 (seq 317: ten Traveler's Satchels, `_1` to `_9` and the unsuffixed first, the worn items' sources); the seeded records `src/room_seeded.json` and `src/avatar_seeded.json`; the save log `log.md`. `1032/` is the first session's scratchpad (briefs, renders, records before each step), read-only |
-| Last session | chainlink session 1034 (live session 26), parent #1947 - read its comments (`chainlink show 1947`): the review, phase 2's concept (the outer districts) and each level's build; before it session 1032 (live 25, the first), #1946: the owner's decisions and the first concept |
+| Working folder | `exports/atrium/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/avatar.py` the body's dress and the drone (session 1032's first body), `b/avatar2.py` the body as reworked (the sculpt, the refitted visor, the kit; it takes the drone from `b/drone2.py`, the rebuilt drone and its flight, and the coat's four items from `b/coat.py` (live 27), reads `src/avatar.json` and writes `gen/avatar2/`: `sculpt.json`, `worn.json` (item, socket and generator file per worn slot), one generator file per item and `1032/avatar2/test.json` for `render --rigged`), `b/motion_sim.py` (a copy of Kairos's motion sampler; the drone's sweep is `1032/drone/tools/sweep.py`), `b/markers.py` socket markers (from Reeve's folder), `b/landscan.py` the flat-centre seed scan; the shell `b/strata_common.py` (every dimension and material), `b/shell_*.py`, `b/shell_build.py` writing `b/shell.edits`, its check `b/shell_check.py`; the Sump `b/sump_*.py`, `b/sump_build.py` writing `b/sump.edits`, its check `b/sump_check.py`; the Works `b/works_*.py` (`b/works.edits`, `b/works_check.py`); the Terraces `b/terr_*.py` (`b/terraces.edits`, `b/terr_check.py`; `b/terr_garden_fix.edits` the re-centred seedling rows); the Crown `b/crown_*.py` (`b/crown.edits`, `b/crown_check.py`); `b/arrival_fix.edits` the moved portal, monument and banner and the landing's pitch -4; the owner's fixes `b/bench_fix.edits`, `b/bench_fix2.edits`, `b/bench_fix3.edits` (the three bench models), `b/lounger_fix.edits`, `b/rails_fix.edits` (the sheared ramp rails: `strata_well1-3`) and `b/gate_uv_fix.edits` (the gate and door panels), each setting whole generators the fixed builders write (the applied edits files have their `/placements/-` lines rewritten to the indices they landed at: re-running one sets, never appends; re-running a `*_build.py` writes appends again, so set single placements by index instead); `b/banner.py` the world's name, banner and steel standard (`b/banner.edits`: `/identity`, `/generators/world_banner`, the standard's spot); the outer districts of session 1034 (live 26): the Sump's `b/sumpout_*.py` (`b/sumpout_build.py` writing `b/sumpout.edits` and `gen/sumpout/`, its check `b/sumpout_check.py` with the routes in `b/sumpout_routes.py`, a top-down plan tool `b/sumpout_plan.py`), the Works' `b/worksout_*.py` (the same shape: `b/worksout_build.py`, `b/worksout.edits`, `gen/worksout/`, `b/worksout_check.py`, `b/worksout_routes.py`, `b/worksout_plan.py`), the Terraces' `b/terrout_*.py` (the same, with `b/terrout_account.py`; `1034/terrout/run.sh` rebuilds, composes and checks; `b/terrout.edits.applied` the applied file with its indices, `b/terrout_deckfix.edits` the pavilion's lowered deck - a re-run of a `*_build.py` writes appends again, so keep the applied file as `b/<name>.edits.applied`, restore it after the rebuild and set the changed generator and placement by index as that file does), `b/sound.py` the outer districts' sounds (`b/sound.edits`: six generators, each from its builder's own output with a sound copied from one the world had), `b/trim.py` the torus trim (`b/trim.edits`: the fire barrels and the standard; run it again after any re-run of `b/sump_build.py`, which writes the Catalogue's barrel fire back); `b/water.py` (live 27) Strata's eight pools in one generator `strata_water` placed at identity, each pool a direct child of its identity root carrying its world transform - the engine answers a nested pool's physics at its LOCAL transform (#1949; the owner swam on the Sump's dry floor at the well's foot) - and stripped from their pieces: re-run it after any rebuild of the cistern (after `b/sound.py`); `b/water2.py` its second pass - a water plane has no bottom, so pools at their true places flooded the levels under them (the owner swam on the Sump's avenue under the Crown's axis pool): `strata_water` keeps only the ground-level cistern, and the seven upper pools are back in their pieces, each wrapped in a hidden near-black 1 cm cube 10 cm under its surface so it registers only at the origin at level 0.1, under every floor (water to no one); re-run it after rebuilding the park, the canal, the villa or the axis pool; the live-session patch scripts of live 27, each editing live generators by path (re-run after rebuilding what they patch, in this order: `b/trim.py`, `b/sound.py`, `b/water.py`, `b/water2.py`, `b/steam2.py`, `b/chimney.py`, `b/flame.py`): `b/steam2.py` steam born inside what it rises from (the cooling vent, the canteen pots, the soup line's and the kitchen's pots; the floor grates' sunk emitter is in `b/sump_lit.py` itself), `b/chimney.py` the well foot kitchen's hood, stovepipe and cap with the steam out of the chimney, `b/flame.py` the fire drums' Flame flipbooks (4 x 4 at 14 fps) and their lights at the strongest flicker allowed (0.29 at 2 Hz; #1950 asks for more); the moving life `b/motion_*.py` (`b/motion_build.py` writing `b/motion.edits` and `gen/motion/`, its check `b/motion_check.py RECORD [BASE] --samples N`, a clearance sweep of every moving part); the last saves: the world `src/room.json` (2026-11-19 11:47, seq 73 of session 1035's daemon: the moving life; seq 52 at 11:37 the kitchen's chimney; seq 49 at 11:32 the fire lights' flicker, 47 at 11:29 the flame flipbooks, 45 at 11:25 the steam born inside, 43 at 11:24 the grates' sunk steam, 39 at 11:18 the upper pools wrapped; seq 31 at 11:04 the pools moved into `strata_water`; seq 28 at 10:54 the turning day; seq 24 at 10:39 the cistern's sludge mats; seq 295 of session 1034's at 05:11 two more sounds and the trim; seq 294 at 04:23 the first sounds and the cistern's pipe caps; seq 293 at 04:17 the Terraces' outer districts; seq 189 at 03:17 the Works', seq 84 at 02:18 the Sump's; before them seq 336 of session 1032's at 00:14, the name and banner; seq 310 the gate seams, 296 the rails, 294 the sun-beds, 291 the benches, 288 the Crown and the arrival, 172 the Terraces, 108 the Works, 37 the Sump, 24 the shell, 2 the land), the avatar `src/avatar.json` (2026-11-19 10:22, seq 14 of session 1035's daemon: the drone's frame cube hidden; seq 11 at 10:18 the tablet's screen turned in; seq 8 at 10:14 the coat and the gripped tablet; seq 339 of session 1032's at 00:37 the rebuilt drone, seq 318 at 23:54 the rework, seq 4 at 17:33 the first body), the inventory 10:14 (seq 7: fourteen Traveler's Satchels, `_1` to `_13` and the unsuffixed first, the worn items' sources); the seeded records `src/room_seeded.json` and `src/avatar_seeded.json`; the save log `log.md`. `1032/` is the first session's scratchpad (briefs, renders, records before each step), read-only |
+| Last session | chainlink session 1035 (live session 27), parent #1948 - read its comments (`chainlink show 1948`): the coat, the owner's hints and fixes, the water bugs (#1949), the flicker (#1950), the moving life; before it 1034 (live 26, #1947: the outer districts) and 1032 (live 25, the first, #1946: the owner's decisions and the first concept) |
 | Default mode | [self-guided](../../session.md#self-guided), building Strata level by level in the order a visitor climbs |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's (Ashmere, [reeve/](../reeve/README.md)), Jink's (Parabola Flats, [jink/](../jink/README.md)), Eigen's (Isoline, [eigen/](../eigen/README.md)), Catoid's (Purlieu, [catoid/](../catoid/README.md)) or Kairos's ([kairos/](../kairos/README.md)); close a live session's parent before the owner has committed its work |
 
@@ -91,13 +91,24 @@ thoughtful").
   | 1 | `crown` | the survey drone (`b/drone2.py`, live 25 00:37): a 27 cm craft - a pale faceted lathe hull (224 triangles where a smooth one cost 1,920) with a teal canopy, a copper waist band, a lit cyan sensor bar, a swept fin and an antenna; four ducted fans on copper arms, each shroud's top rim lit cyan and its two-blade prop spinning 1,440 deg/s (the record's ceiling; diagonal pairs opposite); a camera gimbal under the nose; red (port) and green navigation beads and a white tail bead; a red beacon on the spine swelling every 1.2 s, carrying the drone's one light (range 0.8 m, lit at every hour); a copper docking ring on four legs that sits in the back unit's cradle. 14,852 bytes, 2,264 triangles, 50 nodes 9 deep |
   | 2 | `chest` | Strata's insignia: a stepped ziggurat in gold on deep teal enamel |
   | 3 | `hips` | a tool belt: buckle, measuring reel, pouches, a holstered survey scanner |
-  | 4 | `left-hand` | a holo-tablet showing Strata's levels in section |
+  | 4 | `left-hand` | a holo-tablet showing Strata's levels in section, gripped since live 27 (the owner: "stuck to the outside of your hand instead of being held by the hand"): the slate in the fingers' own plane, its top third between the fingers and the thumb (`b/avatar2.py` `TAB_C` (0.0, -0.095, -0.058) in body axes from the socket; it was (0.028, -0.075, -0.068), against the back of the fingers), its screen turned in toward the body (the owner: "the screen should be towards the avatar's body"; `face = cx - TAB_T / 2`) and its copper edge band centred on the case (set 1 mm back, its back face lay in the case's: a z-fight the owner saw) |
   | 5, 6 | `left-shoulder`, `right-shoulder` | copper-rimmed shoulder domes with rank lights |
   | 7 | `back` | a back unit with an antenna, status lights and the drone's charging cradle |
   | 8, 9 | `left-foot`, `right-foot` | boots |
+  | 10 | `chest` | the coat's standing collar, open at the front, a copper band round its top, copper piping down each side of the jacket front to 2 cm above the belt (the jacket is the coat's body) |
+  | 11 | `hips` | the coat's yoke, under the tool belt (its top inside the belt band's wall), flaring over the hips to 0.21 m below the socket; open front, piped edges, dark teal lining |
+  | 12, 13 | `left-hip`, `right-hip` | the coat's half-skirts to the knee (hem 0.51 m up), their tops tucked 12 cm up inside the yoke; open front edges in copper, the back edges meeting as the vent, a copper hem band, dark lining |
 
-  The sources are the inventory's ten Traveler's Satchels (`Traveler's
-  Satchel`, `_1` to `_9`), stashed from the Catalogue, worn and given these
+  The coat (live 27, `b/coat.py`) is in the jacket's own twill (the warp
+  and weft of `b/avatar.py`'s outfit), each panel ONE hollow lathe with
+  per-face materials - the bore the lining, the cut and hem faces copper
+  (two lathes a panel z-fought: the engine closes a lathe's cut with flat
+  faces to its axis). 14 worn items of the engine's 16
+  (`MAX_AVATAR_ATTACHMENTS`); the coat adds 4,664 triangles (the whole
+  avatar 44,426) and 16.7 KB over four records.
+
+  The sources are the inventory's fourteen Traveler's Satchels
+  (`Traveler's Satchel`, `_1` to `_13`), stashed from the Catalogue, worn and given these
   generators and sockets (avatar.md, "Dressing a rigged person"): to rebuild
   one, `avatar set /worn/N/item/item --file gen/avatar2/<item>.json`, then
   `/worn/N/item/socket`. The first body's visor (a hollow cylinder kept to
@@ -105,13 +116,16 @@ thoughtful").
   the `path_cut` yaw that faces a person's `face` forward is 90, not 72.
 - **The drone's flight** (`b/drone2.py`, one node a motion, every frame a
   1 cm cube with no material hidden in the head or the hull): the hub at
-  (0, -0.08, -0.095) from `crown` - over the head's middle, which is about
+  (0, -0.10, -0.095) from `crown` - over the head's middle, which is about
   9.5 cm behind the socket - turning +40 deg/s (+X toward -Z, a lap in
-  about 9 s) plus a wobble of 14 degrees over 11 s; the radial node 0.42 m
-  out and 0.215 m up, sliding along +X 0.075 m over 7 s plus 0.012 m over
+  about 9 s) plus a wobble of 14 degrees over 11 s, and since live 27
+  carrying the rise and dip too (on a height node of its own under the
+  radial one, the slide carried the drone past the radial node's cube,
+  which the owner saw flying through the hull); the radial node 0.42 m
+  out and 0.235 m up, sliding along +X 0.075 m over 7 s plus 0.012 m over
   4.6 s (0.33 to 0.51 m out, 7 s no divisor of the lap, so the path
-  precesses); the height node sliding along +Y 0.045 m over 5.2 s plus
-  0.012 m over 3.7 s; the yaw node, nose to the hub's -Z, swinging 12.9
+  precesses); the hub sliding along +Y 0.045 m over 5.2 s plus 0.012 m
+  over 3.7 s; the yaw node, nose to the hub's -Z, swinging 12.9
   degrees over 7 s at phase 270 so the nose follows the widening and
   closing path; the bank node rolled 16 degrees with port (the head's side)
   low, swinging 5 degrees over 7 s plus a 2 degree buffet over 2.9 s (21
@@ -129,9 +143,6 @@ thoughtful").
   a front duct to the head's box; never below the crown.
 - **A body prim is held to 1 cm** on every dimension and `hollow` to 0.95:
   `render --rigged` names each place it raises.
-- **No coat.** The engine dresses a person in a top and trousers only; a
-  long coat would be worn split skirts (Reeve's surcoat, avatar.md). Not
-  built.
 - See it offline: `render --rigged 1032/avatar2/test.json --size 1024`
   (`b/avatar2.py` writes the file from `src/avatar.json`, sculpted and
   dressed).
@@ -161,10 +172,13 @@ Flat since live 25: the mesa recipe with ONE terrace
 120 thermal iterations): ground 0.0 everywhere, the sea at -5 m, the seeded
 icy ground layers kept (Ice, Ground, Rock, Snow). Seed scans at 6, 10, 14 and
 50 cells with two terraces never gave a 400 m single-level centre
-(`b/landscan.py`), so the mesas went. The sky: a standing 15:30
-(`/environment/time_of_day` `{"hour": 155000, "day_minutes": 0}`) with snow
-in 12-minute spells a quarter of the time at 0.45 (`/environment/weather`);
-the seeded noon fields kept.
+(`b/landscan.py`), so the mesas went. The sky: since live 27 (the owner's yes, 10:53) a day that turns once every two
+real hours, a world hour every five minutes (`/environment/time_of_day`
+`{"hour": 166878, "day_minutes": 1200000}`: the hour anchor kept 15:30 on
+screen at the change - before it a standing 15:30, `{"hour": 155000,
+"day_minutes": 0}`), with snow in 12-minute spells a quarter of the time at
+0.45 (`/environment/weather`); the seeded noon fields and neutral icy fog
+kept. At night the arcology shows its lit windows, neon and the reactor.
 
 ### Arrival
 
@@ -201,11 +215,14 @@ whatever `/identity` holds.
 | The market avenue | 0, 236 to 34 | the Sump's 16 m column-free street: stacked containers 2-4 high, stalls, kiosks, neon blade signs, cables of bulbs, pipes with steam and a drip, a STRATA advert at (0, 112) | 1032 |
 | The well's foot | 0, 30 to -30 | the atrium's floor under the light column: soup kitchen (x 16-21.6, z 6.5-16), tap (3.5, 8), fire circle (-6, 2), sleepers, shacks round the east and north edges | 1032 |
 | Alleys | E180 to x 70, W120 to x -76, E60 to x 48 | shanty lanes off the avenue, washing lines, bulbs | 1032 |
-| The Cistern Quarter (L0) | x -75 to 75, z -30 to -239 | the north half: the cistern pool (x -28 to 28, z -126 to -56, the columns standing in the water) with a pump gantry at z -91 (flywheel, steam, two sodium lamps over the water), four pump houses at (+-60, -60) and (+-60, -120), risers and mains into the ceiling, container homes and a catwalk; the scrap market on the north way (x -4 to 4 kept clear) with heaps and a derrick whose magnet swings; the scrap chapel at (-30, -210), door east, rose window, bell, neon cross | 1034 |
+| The Cistern Quarter (L0) | x -75 to 75, z -30 to -239 | the north half: the cistern pool (x -28 to 28, z -126 to -56, the columns standing in the water) with a pump gantry at z -91 (flywheel, steam, two sodium lamps over the water), four pump houses at (+-60, -60) and (+-60, -120), risers and mains into the ceiling, container homes and a catwalk; floating mats of algae, sludge and grey foam over about a quarter of the cistern's water (live 27: they break the pale sky sheen the roofed pool showed); the scrap market on the north way (x -4 to 4 kept clear) with heaps and a derrick whose magnet swings; the scrap chapel at (-30, -210), door east, rose window, bell, neon cross | 1034 |
 | The Stacks (L0) | x 75 to 239, the east gate street z -6 to 6 | container homes 3-4 high fronting the street, catwalks and ladders, laundry, bulb cables across at 5.7 m, a neon blade sign at (122, 7.3), container-wall blocks (a container-sized Brick texture) in the cells either side | 1034 |
 | Rag Town (L0) | x -80 to -239, the west gate street | tarp and plank shanties, tents, four burning drums at the cross streets, the walk-in clinic tent at (-120, -10), the soup line at (-150, 8), shanty blocks either side | 1034 |
 | Gate yards (L0) | inside the E, W and N gates | checkpoint booths at E (235.5, 9.2), W (-235.5, -9.2), N (9.2, -235.5) with lit amber signs and raised booms, shacks backed onto the wall | 1034 |
 | The Atrium | 0, 0 | the 60 m light well; ramps R1 (west then north walls, L0 to L1), R2 (east then south, L1 to L2), R3 (west then north, L2 to the Crown), two 10-degree flights each; level landings NE1 (L1, 18), SW2 (L2, 36), NE3 (Crown, 54) | 1032 |
+| The lift towers (the Atrium) | (-16, 5), (14, -13), (6.5, 17.5) | three steel lattice towers from the well's foot to a machine house over the Crown (58.6-61.8 m, a red beacon), each with a lit teal car riding up and down - slowing, dwelling about 5 s at each level (stops 0.45, 18.30, 36.15, 54.00), moving on - its yellow counterweight passing the other way, its cable following; visual only, no bridges to the levels (`motion_lift_frame` an instance set, solid; `motion_lift_cars`) | 1035 |
+| The cargo drones (the Atrium) | over the well, 12-48 m up | five: two on a hub turning a lap a minute at 22 and 30 m, three on chords (x -4 at 12 m, z -5 at 40 m, the diagonal at 48 m) turning about at each end; pulsing beacons (`motion_drones`) | 1035 |
+| The Freight Line (L1) | over the Freight Aisle, z 47 to 162, y 31-32 | a suspended monorail beam on hangers from the slab, two hanging terminal sheds with lit bands, a two-car teal train running out of one shed into the other at 5 m/s, a train every 20 s, 8.7 m over the aisle (`motion_tram`) | 1035 |
 | The Rim Promenade (L1) | ring 30.4 to 36.5 m round the well, y 18 | lamps in planters, benches, coin telescopes | 1032 |
 | The Exchange (L1) | x -13 to 43, z -48 to -73 | covered market of 32 lit stalls, a canteen (x -13 to 2.5) with menus and pendants, an info pylon at (23.2, -59.85); entrance at (23.2, -48.6) | 1032 |
 | The forecourt (L1) | x 1 to 41, z -36 to -44 | a waiting shelter with a chevron ticker (x 1 to 11), kiosks at (20.5, -41.5) and (-8, -41.5), the Works' sign pylon at (41, -36) | 1032 |
@@ -264,7 +281,9 @@ The Terraces' outer districts (04:17, seq 293): 806,560 (87.5 %; about
 919,000), parts 9,688, the Terraces' lights 62 (Strata about 239 in all,
 the nearest 64 drawn), the manifest 82,592 of 102,400 (about 20 KB, some
 90 placements, left) - its 16 placements held the reused heart pieces in
-one shared set each across districts. After the trim (05:11, seq 295,
+one shared set each across districts. Live 27's moving life (11:47, seq 73): 861,508
+(93.5 %; about 60 KB left), the manifest 83,454, triangles about 397,600,
+parts about 9,930 - the budget's last tenth. After the trim (05:11, seq 295,
 `b/trim.py`: the fire barrels' and the standard's rings from 28 x 10 torus
 segments to 16 x 6) the placements draw 389,118 triangles (911,360 with
 the ground). Parts (`--triangle-report`, copies one by
@@ -297,6 +316,15 @@ every dimension.
   "could be much better" (23:58). Benches' backrests lean back, sun-beds'
   head-rests rise from the bed, ramp rails end vertical (shear), and a
   gate's or door's panels carry the wall's texture on without a seam.
+- 2026-11-19 (chat, live 27, 10:24): "Work on your avatar is complete for
+  now. It looks very good." - the body as it stands (the coat, the
+  gripped tablet with its screen in, the drone) is accepted: no further
+  body changes unasked.
+- 2026-11-19 (chat, live 27, 10:53): a turning day of about two hours ("Yes.
+  That sounds good.") - the mood is the owner's; Strata's day now runs
+  through night, its lights the show. Also (10:37): the column fields may
+  stay instance sets while the manifest has room; four grids a level round
+  the well are the owner's suggested saving if it runs short.
 
 ## Working material
 
@@ -368,16 +396,42 @@ scratchpad (briefs, renders, the seed scans).
   manifest, one record holding every placement, became the next ceiling
   (82.6 KB of 102.4): the Terraces kept to 16 placements by holding every
   reused heart piece in one shared set. The owner did not visit.
+- **1035 - 2026-11-19, live 27, #1948.** The owner: "Please log in Atrium
+  again and continue with the still open work"; in the world 09:25-11:42.
+  The steward's coat by an offline builder (343k tokens: collar, yoke and
+  two knee-length half-skirts, 14 worn items of 16), the tablet gripped and
+  then turned to face the body, the drone's left-behind frame cube hidden
+  (its rise and dip moved onto the hub) - then "Work on your avatar is
+  complete for now". The cistern's pale water given floating scum mats. The
+  owner asked for recommendations and a standing texture-request issue
+  (symbios-texture #30, every agent to contribute); approved a two-hour
+  turning day. The owner swam on dry floor twice - a pool nested in a piece
+  registers at its local transform, and a pool has no bottom (#1949): all
+  pools moved, then the upper ones wrapped, confirmed fixed. Steam vents
+  sunk under the floor, all steam born inside its source, the kitchen given
+  a stovepipe, the fire drums' flames as Flame flipbooks and their lights at
+  the strongest flicker allowed (#1950 asks for more). Life on the move by
+  a third builder (437k tokens): lift towers, cargo drones, the Freight Line
+  - the towers' density not yet judged by the owner. Failed at first: a
+  `name` key (nodes have none), a flicker of exactly 0.30 slowed to 0.74 Hz,
+  my own untested walk legs through shacks and a column.
 
 ## Open threads
 
 - The rebuilt drone (00:37) has not been seen by the owner yet; the
   sweep's body boxes were measured by hand on a ruler render, and the
   walk and run margins are estimates.
-- The coat (worn split skirts), promised in the concept and not built: the
-  engine's outfit is close-fitting only.
+- The coat (live 27, 10:14) has not been judged by the owner yet; at a
+  run past 30 degrees of thigh pitch a half's top leaves the yoke at the
+  back (up to 6 cm) and its front juts with the thigh (the documented
+  half-skirt behaviour), and the vent shows a hairline of light from the
+  front.
 - Triangles: the Terraces' soft-blob tree crowns and greens (about 60k) are
   the first to lighten if the web strains.
+- The lift towers (live 27) are dense lattices that change the open atrium's
+  look (`1035/motion/views_well_day.png`): the owner has not judged them -
+  thin them (fewer diagonals, a lighter frame) or remove them on their word
+  (`b/motion.edits`: placements 280-283).
 - The budget's last fifth: about 115 KB of the live ceiling and 20 KB of
   the manifest (some 90 placements) are left after phase 2, and the
   placements draw about 397,000 triangles over the ground's 522,000 -
@@ -394,7 +448,9 @@ scratchpad (briefs, renders, the seed scans).
 - The Works' loaders and lift deck have no colliders (a moving part never
   does): visitors pass through them; the misting lines' particles were
   faint offline (opacity 0.24, 22 a second): unseen live.
-- The cistern's water reads as a pale slab from eye height across it (the
-  water shader mirrors only the sky, even under a roof): unseen live.
+- The park pond on the Terraces still reads pale at eye height (the
+  water shader mirrors only the sky, even under a roof); the Sump's
+  cistern got floating algae and scum mats for it (live 27, 10:39) - the
+  pond's lily pads cover far less.
 - Snow: the Crown and the terrace gardens are open to the sky; how the
   winter garden reads under settled snow has not been seen live.

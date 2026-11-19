@@ -269,9 +269,15 @@ wrong and the offsets need tuning".
   its own, every frame a 1 cm cube with no material hidden in the head or
   the hull: the hub's turn with a wobble (a pace that wanders), a radial
   slide whose period is no divisor of the lap (a path that precesses), a
-  vertical slide, a yaw swing of the radial slide's period that keeps the
-  nose on the path, a bank toward the head with a swing of that period
-  (steeper as the orbit closes), and a nose-down pitch. Its rest pose is
+  vertical slide ON THE HUB (along its own axis, beside its turn), a yaw
+  swing of the radial slide's period that keeps the nose on the path, a
+  bank toward the head with a swing of that period (steeper as the orbit
+  closes), and a nose-down pitch. A frame cube stays where its own node
+  puts it: the vertical slide on a node of its own under the radial one
+  slid the drone up and down past the radial node's cube, and the owner
+  saw "a tiny cube ... fly through the drone back and forth" (live
+  session 27) - so slide only a node whose cube is hidden wherever it
+  goes, and keep every frame below it at one point inside the hull. Its rest pose is
   what Effects Off shows - Off stills the turn too - so make it a pose
   (Atrium's hovers off the right shoulder). Prove the nose and the bank's
   sign from renders, never from reasoning: frames a quarter lap apart from
@@ -317,7 +323,26 @@ wrong and the offsets need tuning".
   surcoat: a short yoke on the hips and a half-skirt on each leg root (a
   lathe with `path_cut` [0, 0.5], its axis set back to the body's middle).
   Keep the halves to the knee: at a run a panel turns with its thigh, and a
-  mid-calf one jutted 0.6 m forward like a board.
+  mid-calf one jutted 0.6 m forward like a board. Atrium's coat (live
+  session 27, `exports/atrium/b/coat.py`): tuck each half's top about 12
+  cm up inside the yoke, or a walking thigh's pitch opens a dark slot
+  under it at the back (no gap from -25 to +30 degrees of pitch; a run
+  past 30 opens up to 6 cm). Make each panel ONE hollow lathe with
+  per-face materials (the bore the lining, the cut and hem faces the
+  trim): the engine closes a lathe's `path_cut` with flat faces to its
+  axis, so a second lathe for the lining z-fought as stripes in the
+  coat's front opening.
+- **A body wears at most 16 items** (`MAX_AVATAR_ATTACHMENTS`,
+  `src/pds/avatar/body.rs`; slots past it are dropped): Atrium's kit and
+  coat take 14.
+- **A held thing faces its holder, and a thin part's trim sits centred.**
+  Atrium's tablet, first stuck flat to the back of the hanging hand, then
+  gripped in the fingers' own plane, still showed its screen to the world
+  until turned toward the body (the owner, live session 27: "properly
+  held, the screen should be towards the avatar's body"). Its copper edge
+  band, 1 cm thick (no body prim is thinner) round a 1.2 cm case and set
+  1 mm back, laid its back face in the case's: a z-fight the owner saw at
+  once. On a part under 2 cm thick a band can only sit centred.
 - **Measure the body, not only its sockets.** Session 879 noted Reeve's hips
   as 0.30 m wide and cut his yoke to that; the bare body is 0.186 m wide at
   the hips socket (0.21 m over the buttocks) - the arms, hanging 0.17 m out,

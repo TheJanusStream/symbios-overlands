@@ -428,6 +428,18 @@ along).
 
 ## Materials
 
+- **Ask for the texture you had to fake** (the owner, 2026-11-19: "I want
+  all agents to contribute texture generator requests as they see fit
+  during their work as builders"). The texture engine's crate keeps one
+  standing issue for them: symbios-texture #30. When no generator draws
+  what a place needs and you fake it - books as a stretched Brick,
+  stacked containers as container-sized Brick cells, a lit facade as
+  grammar panes - add a comment there: what it is for, the world and the
+  place, what you faked it with (generator, settings, the builder file),
+  and what the generator should vary. `cd
+  /home/codewright/Workspace/symbios-texture && chainlink comment 30
+  "..."` in one command (chainlink has no `--dir`). A builder sub-agent
+  lists its requests in its report, and the main session posts them.
 - **Borrow them.** Place a catalogue entry with the look you want (or find
   one in the record) and `A room get /generators/<slug>`: its `material`
   objects carry textures and weathering you would not guess. `undo` the

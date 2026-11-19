@@ -174,7 +174,23 @@ at or over its y draws nothing, nor one whose ground falls away past its
 rectangle from its very point, nor one whose brim lies at or under the sea,
 and the World Editor says which under the water child, and the brim a lake
 stands at. Water inside a built piece (a
-Water child of a box) keeps its rectangle: its walls hold it.
+Water child of a box) keeps its rectangle: its walls hold it. **But until
+issue #1949 is fixed the engine answers its physics - swimming, buoyancy,
+the agent's height - at the water node's LOCAL transform**, its place relative
+to its parent, while drawing it where the chain puts it: Strata's cistern
+water, 0.885 m over its basin's lining, was also an invisible 55 x 69 m
+pool round the world's origin, and the owner swam on the Sump's dry floor
+there (live session 27). And a water plane has no bottom: everything under
+its surface inside its rectangle is water, however deep - registered at
+their true places, the Crown's reflecting pools flooded the levels 54 m
+below them, and the owner swam on the Sump's avenue. Until the engine has
+both fixes: a pool with only ground under it hangs directly under an
+identity root in a generator placed at identity, its world transform as
+its own (it registers truly); a pool over a floor is wrapped - a hidden
+1 cm cube carrying its place, the water its child with its scale and a
+small lift - so it registers only at the origin at that lift, under every
+floor there, and is water to no one (`exports/atrium/b/water.py`,
+`b/water2.py`).
 
 **A seeded world's land may be the wrong kind entirely.** Reeve's (session
 879) was a 69 m rough `DiamondSquare` mountain; an English lowland manor
@@ -1187,7 +1203,10 @@ A forest is a few generators and a scatter placement each:
   and flashes at most twice a second, as lightning does: a pulse deeper
   than 0.1 at most 2 a second, a flicker deeper than 0.15 at most 2 and one
   deeper than 0.3 (its shimmer flashes too) at most 0.74 - a faster rate is
-  saved slowed to that. A viewer's Effects setting calms it further:
+  saved slowed to that. A flicker of exactly 0.3 counts as deeper (its
+  shimmer, a third of it, comes out a hair over 0.1): Strata's fire drums
+  at 0.30 and 2 Hz were slowed to 0.74; 0.29 at 2 Hz is the strongest
+  flicker a light may have (live session 27). A viewer's Effects setting calms it further:
   Reduced halves the dip and moves it at most once a second, Off holds it
   steady. Like every number, each is scaled by 10 000 on the wire. A lamp
   on a turning node turns with it: a spot on a spinning hub is a
@@ -1303,7 +1322,15 @@ and merged into a few meshes, one per material, so a copy costs a handful
 of entities however many parts its generator has, and a copy is about
 twenty bytes of manifest where a placement of its own is about 200. Reach
 for one where a placement per copy would pass the 1,024 placements or the
-manifest's budget.
+manifest's budget. A grid placement (`network.symbios.place.grid`:
+`counts`, `gaps`) is smaller still in the record, but the compile spawns
+every cell as its own full copy through the generator (not merged into a
+set's few meshes), and a grid cannot leave a cell out: four grids round a
+hole stand for one field with a gap. Strata's column fields stay instance
+sets (252, 140 and 60 copies in 7.6 KB of manifest, about 17 bytes a
+column); four grids a level round the light well would save about 6 KB -
+kept in hand for when the manifest runs short (live session 27, the
+owner's suggestion).
 
 ```json
 {"$type": "network.symbios.place.instances", "generator_ref": "street_house",
