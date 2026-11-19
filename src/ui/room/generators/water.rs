@@ -1,13 +1,25 @@
 //! Per-volume water editor: the full [`WaterSurface`] knob set
-//! grouped into colour / wave / material / flow sub-panels. Vertical
+//! grouped into colour / wave / material / flow / depth sub-panels. Vertical
 //! position is set via the generator's placement transform - there's
 //! no separate level-offset slider any more.
 
 use bevy_egui::egui;
 
 use crate::pds::WaterSurface;
+use crate::pds::sanitize::limits::{MAX_WATER_DEPTH, MIN_WATER_DEPTH};
 
-use super::super::widgets::{color_picker_rgba, fp_slider};
+use super::super::widgets::{color_picker_rgba, fp_slider, fp_slider_log};
+
+/// What the Depth row says on hover (#1949).
+const DEPTH_HOVER: &str = "How deep the water is, in metres under its surface. Below its \
+     bottom nothing is in the water: a pool on a roof is no water to the hall under it. \
+     Unset, it reaches down to the floor of the piece that holds it - the bottom of its \
+     parent's box - but never more than 2.5 m, and 2.5 m where the parent has no box \
+     or its box does not reach under the water. So parent the water to the slab under \
+     it, or set its depth here: a pool deeper than 2.5 m needs it. A depth set here is \
+     world metres and does not grow with a scaled copy. Only water inside a built piece \
+     has a bottom: the world's own water layers, its sea and lakes, reach down to the \
+     ground and ignore this.";
 
 pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, dirty: &mut bool) {
     egui::CollapsingHeader::new("Colour")
@@ -115,6 +127,10 @@ pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, d
             fp_slider(ui, "Flow amount", &mut surface.flow_amount, 0.0, 1.0, dirty);
         });
 
+    egui::CollapsingHeader::new("Depth")
+        .default_open(false)
+        .show(ui, |ui| draw_depth(ui, surface, dirty));
+
     egui::CollapsingHeader::new("Avatar wakes")
         .default_open(false)
         .show(ui, |ui| {
@@ -142,4 +158,54 @@ pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, d
                 dirty,
             );
         });
+}
+
+/// The Depth row (#1949): ticked, a depth in metres; unticked, unset - down
+/// to the holding piece's floor. Ticking it starts from
+/// [`WaterSurface::FALLBACK_DEPTH`], which the wire holds exactly.
+fn draw_depth(ui: &mut egui::Ui, surface: &mut WaterSurface, dirty: &mut bool) {
+    let mut set = surface.depth.is_some();
+    if ui
+        .checkbox(&mut set, "Set its depth")
+        .on_hover_text(DEPTH_HOVER)
+        .changed()
+    {
+        surface.depth = set.then_some(crate::pds::Fp(WaterSurface::FALLBACK_DEPTH));
+        *dirty = true;
+    }
+    match surface.depth.as_mut() {
+        Some(depth) => {
+            fp_slider_log(
+                ui,
+                "Depth (m)",
+                depth,
+                MIN_WATER_DEPTH,
+                MAX_WATER_DEPTH,
+                dirty,
+            )
+            .on_hover_text(DEPTH_HOVER);
+        }
+        None => {
+            ui.label(
+                egui::RichText::new(
+                    "Unset: down to the floor of the piece that holds it, 2.5 m at most.",
+                )
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            )
+            .on_hover_text(DEPTH_HOVER);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #1949: the hover names the fallback the depth rule uses.
+    #[test]
+    fn the_depth_hover_names_the_fallback() {
+        let fallback = format!("{} m", WaterSurface::FALLBACK_DEPTH);
+        assert!(DEPTH_HOVER.contains(&fallback), "{fallback}");
+    }
 }

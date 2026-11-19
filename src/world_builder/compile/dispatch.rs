@@ -50,11 +50,16 @@ use super::spawn_ctx::{SpawnCtx, budget_exceeded, transform_from_data};
 /// only a top-level placement is keyed directly by `generator_ref` in the
 /// record's `traits` table - children inside a tree share the named
 /// generator's traits via the anchor and should not double-apply.
+///
+/// `anchor_tf` is the anchor's pose in the world - the anchor hangs under
+/// nothing - which every node's world frame starts from (#1949,
+/// [`SpawnCtx::frame`]).
 pub(crate) fn dispatch_top_level(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     generator_ref: &str,
     cell_tf: Transform,
     anchor: Entity,
+    anchor_tf: &Transform,
 ) -> Option<Entity> {
     // Copy the shared record reference out of `ctx` so the borrowed generator
     // is tied to the record's lifetime (`'a`), not to `ctx`. That lets the
@@ -91,15 +96,17 @@ pub(crate) fn dispatch_top_level(
     // Water children of scattered/gridded blueprints used to be stripped here
     // because each cell would spawn a redundant world-extent plane. With
     // finite, transform-bounded surfaces tracked in `WaterSurfaces`, scattered
-    // ponds are now legitimate - each cell's local transform produces a
-    // distinct entry in the registry - so the strip step has been removed.
+    // ponds are now legitimate - each copy's world frame produces a distinct
+    // entry in the registry (#1949) - so the strip step has been removed.
     let root_tf = cell_tf * transform_from_data(&generator.transform);
     // Every spinner of this copy shares one clock offset, drawn from where
     // the copy stands (#1604): a copy's cogs stay meshed, and a scatter's
     // windmills do not turn in lockstep.
     ctx.spin_epoch =
         crate::world_builder::spin::copy_epoch(ctx.placement_index, cell_tf.translation);
+    let outer = ctx.frame.replace(*anchor_tf);
     let entity = spawn_generator(ctx, generator, generator_ref, &[], root_tf, Some(anchor));
+    ctx.frame = outer;
     if let Some(entity) = entity
         && !is_terrain_root
     {
@@ -155,7 +162,11 @@ pub fn spawn_generator(
     // than in the node, for the same reason.
     let spinning = ctx.spinning;
     ctx.spinning |= generator.animates();
+    // The node's own world frame (#1949), for the same reason again.
+    let frame = ctx.frame;
+    ctx.frame = frame.map(|frame| frame * transform);
     let entity = spawn_node(ctx, generator, base_ref, path, transform, parent);
+    ctx.frame = frame;
     ctx.spinning = spinning;
     ctx.copy.leave_node(saved);
     entity
@@ -278,17 +289,41 @@ fn spawn_node(
                             .id(),
                     )
                 }
-                None => Some(spawn_water_volume(
-                    ctx.commands,
-                    surface,
-                    &ctx.record.environment,
-                    transform,
-                    world_extent,
-                    ctx.meshes,
-                    ctx.water_materials,
-                    ctx.water_surfaces,
-                    ctx.placement_index,
-                )),
+                None => {
+                    // Registered where it is drawn (#1949): in the world's
+                    // frame, its anchor's and every ancestor's composed with
+                    // its own - not its own alone, which put every pool in a
+                    // built piece round the world's origin at its height in
+                    // its parent. Water in a built piece has a depth: its
+                    // record's, or what its holder's floor gives. The
+                    // world's own layers have the ground for a bottom.
+                    // Outside a room placement - a detached tree, an item
+                    // preview's - there is no world frame: it is drawn and
+                    // not registered, as a plane in its parent's frame would
+                    // be phantom water round the world's origin.
+                    let registered = ctx.frame.map(|world_tf| {
+                        let depth = (!terrain_water).then(|| {
+                            super::water::water_depth(
+                                world_tf.translation.y,
+                                surface.depth,
+                                ctx.water_floor,
+                            )
+                        });
+                        (world_tf, depth)
+                    });
+                    Some(spawn_water_volume(
+                        ctx.commands,
+                        surface,
+                        &ctx.record.environment,
+                        transform,
+                        registered,
+                        world_extent,
+                        ctx.meshes,
+                        ctx.water_materials,
+                        ctx.water_surfaces,
+                        ctx.placement_index,
+                    ))
+                }
             }
         }
         // The road network's mesh is built by the terrain plugin from its
@@ -474,10 +509,21 @@ fn spawn_generator_children(
     base_ref: &str,
     parent_path: &[usize],
 ) {
+    // The floor of this node's box in the world, which a Water child is
+    // held by (#1949): read once, and only when a Water child asks.
+    let mut floor = None;
     for (i, child) in parent_node.children.iter().enumerate() {
         let mut child_path = parent_path.to_vec();
         child_path.push(i);
         let child_tf = transform_from_data(&child.transform);
+        let water = matches!(child.kind, GeneratorKind::Water { .. });
+        if water {
+            ctx.water_floor = *floor.get_or_insert_with(|| {
+                ctx.frame
+                    .as_ref()
+                    .and_then(|frame| super::water::holder_floor(&parent_node.kind, frame))
+            });
+        }
         spawn_generator(
             ctx,
             child,
@@ -486,6 +532,9 @@ fn spawn_generator_children(
             child_tf,
             Some(parent_entity),
         );
+        if water {
+            ctx.water_floor = None;
+        }
     }
 }
 

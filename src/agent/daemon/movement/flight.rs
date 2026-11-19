@@ -929,6 +929,7 @@ mod tests {
                 flow_strength: 0.0,
                 owner: WaterPlane::NO_OWNER,
                 cells: None,
+                depth: None,
             }],
         });
     }

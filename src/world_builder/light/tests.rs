@@ -795,6 +795,7 @@ fn a_flicker_is_the_same_everywhere_and_stays_within_its_amount() {
         amount: 0.4,
         rate: 0.7,
         fine: true,
+        shimmer_rate: None,
     };
     let pulse = Flicker::Pulse {
         amount: 0.6,
@@ -850,6 +851,7 @@ fn a_flicker_moves_through_its_depth_at_utc_scale() {
         amount: 0.6,
         rate: 0.5,
         fine: true,
+        shimmer_rate: None,
     };
     for (f, swing) in [(pulse, 0.55), (flicker, 0.05)] {
         let shares: Vec<f32> = (0..40)
@@ -872,6 +874,7 @@ fn the_effects_setting_calms_a_flicker() {
         amount: 0.8,
         rate: 0.7,
         fine: true,
+        shimmer_rate: None,
     };
     assert_eq!(calmed(fast, EffectsIntensity::Full), Some(fast));
     assert_eq!(
@@ -879,7 +882,8 @@ fn the_effects_setting_calms_a_flicker() {
         Some(Flicker::Flicker {
             amount: 0.4,
             rate: 0.7,
-            fine: false
+            fine: false,
+            shimmer_rate: None,
         })
     );
     let quick = Flicker::Pulse {
@@ -917,12 +921,104 @@ fn the_effects_setting_calms_a_flicker() {
             amount: 0.4,
             rate: 0.7,
             fine: false,
+            shimmer_rate: None,
         };
         assert_eq!(
             flicker_share(calm, seed, now),
             flicker_share(lone, seed, now)
         );
     }
+}
+
+/// A flicker's shimmer on its own rate (#1950) moves at that rate, not
+/// 2.7 times its waver's: a slow swell at 0.5 a second under a flutter at
+/// eight turns at most eight times a second and, a random walk turning at
+/// about two knots in three, more than three - where the coupled shimmer
+/// would turn at most 1.35 times a second. Read off the drawn share with
+/// the waver taken out (the same flicker drawn without its shimmer).
+/// Reduced drops an own shimmer as it does a coupled one; Off is steady.
+#[test]
+fn a_shimmer_on_its_own_rate_moves_at_that_rate() {
+    let own = |shimmer_rate| Flicker::Flicker {
+        amount: 0.3,
+        rate: 0.5,
+        fine: true,
+        shimmer_rate,
+    };
+    let broad = Flicker::Flicker {
+        amount: 0.3,
+        rate: 0.5,
+        fine: false,
+        shimmer_rate: None,
+    };
+    let seed = light_seed("drum", &[3], 0.0, 0);
+    // The shimmer's own walk, in [0, 1], on 1 ms frames over 20 s.
+    let turns = |f: Flicker| {
+        let walk: Vec<f32> = (0..20_000)
+            .map(|k| {
+                let now = 1.8e9 + f64::from(k) * 0.001;
+                let waver = (1.0 - flicker_share(broad, seed, now)) / 0.3;
+                let dip = (1.0 - flicker_share(f, seed, now)) / 0.3;
+                (dip - (1.0 - FLICKER_FINE_SHARE) * waver) / FLICKER_FINE_SHARE
+            })
+            .collect();
+        let rising: Vec<bool> = walk
+            .windows(2)
+            .filter(|w| (w[1] - w[0]).abs() > 1e-5)
+            .map(|w| w[1] > w[0])
+            .collect();
+        rising.windows(2).filter(|w| w[0] != w[1]).count() as f32 / 20.0
+    };
+    let quick = turns(own(Some(8.0)));
+    let coupled = turns(own(None));
+    assert!(
+        (3.0..=8.0).contains(&quick),
+        "{quick} turns a second at 8 Hz"
+    );
+    assert!(coupled <= 0.5 * FLICKER_FINE_RATE, "{coupled} coupled");
+
+    let flicker = own(Some(8.0));
+    assert_eq!(
+        calmed(flicker, EffectsIntensity::Reduced),
+        Some(Flicker::Flicker {
+            amount: 0.15,
+            rate: 0.5,
+            fine: false,
+            shimmer_rate: None,
+        }),
+        "Reduced: half as deep, no shimmer, its own rate or not"
+    );
+    assert_eq!(calmed(flicker, EffectsIntensity::Off), None);
+    assert_eq!(calmed(flicker, EffectsIntensity::Full), Some(flicker));
+}
+
+/// A record's flicker reaches the drawing with its own shimmer rate, and
+/// one without (saved before #1950) draws coupled, as it did.
+#[test]
+fn a_records_shimmer_rate_reaches_the_drawing() {
+    let record = |shimmer_rate| LightFlicker::Flicker {
+        amount: Fp(0.29),
+        rate: Fp(2.0),
+        shimmer_rate,
+    };
+    assert_eq!(
+        Flicker::of(&record(Some(Fp(8.0)))),
+        Some(Flicker::Flicker {
+            amount: 0.29,
+            rate: 2.0,
+            fine: true,
+            shimmer_rate: Some(8.0),
+        })
+    );
+    assert_eq!(
+        Flicker::of(&record(None)),
+        Some(Flicker::Flicker {
+            amount: 0.29,
+            rate: 2.0,
+            fine: true,
+            shimmer_rate: None,
+        })
+    );
 }
 
 /// An app holding a camera, a dusk-to-dawn light and one lit at every

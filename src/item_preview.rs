@@ -706,10 +706,10 @@ fn catalogue_subject(pick: Pick<'_>) -> Option<PreviewSubject> {
 /// What a TREE on the stage must be is [`crate::pds::inventory::is_drop_placeable`]
 /// (which [`InventoryRecord::picture_of`] applies), and it
 /// is not a nicety. The spawn path runs `avatar_mode`, but the Terrain arm
-/// of `spawn_generator` tags its anchor `RoomEntity` regardless, and a
-/// Water child spawns a volume the width of the whole region and registers
-/// it in `WaterSurfaces` - a room-scoped item on the stage would reach into
-/// the world. An unreadable item (`GeneratorKind::Unknown`) has nothing to
+/// of `spawn_generator` tags its anchor `RoomEntity` regardless - a
+/// room-scoped item on the stage would reach into the world. (A Water child
+/// inside an item is drawn on the stage and, with no world frame there,
+/// registers nothing in `WaterSurfaces`, #1949.) An unreadable item (`GeneratorKind::Unknown`) has nothing to
 /// draw. The pane says why in each case; the stage stays out of it.
 fn inventory_subject(
     pick: Pick<'_>,

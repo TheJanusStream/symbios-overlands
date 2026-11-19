@@ -2373,6 +2373,7 @@ fn swam(pace: f32) -> (bool, f32) {
             flow_strength: 0.0,
             owner: crate::water::WaterPlane::NO_OWNER,
             cells: None,
+            depth: None,
         }],
     });
     let chassis = app

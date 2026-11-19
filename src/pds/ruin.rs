@@ -217,6 +217,7 @@ fn guttering(light: &mut super::LightSource) {
     light.flicker = Some(super::LightFlicker::Flicker {
         amount: Fp(GUTTER_FLICKER.0),
         rate: Fp(GUTTER_FLICKER.1),
+        shimmer_rate: None,
     });
     super::sanitize::Sanitize::sanitize(light);
 }

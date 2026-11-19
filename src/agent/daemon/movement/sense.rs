@@ -95,7 +95,13 @@ impl Sensing<'_, '_> {
                 None => self.ground_at(position.xz())?,
             }
         };
-        let water = self.water_at(position.xz()).filter(|water| *water > ground);
+        // Asked at the body's underside, the analogue of a person's feet
+        // (#1949): a pool whose bottom is over it - a raised pool, with the
+        // body on the floor of the storey under it - is not what is under
+        // it, though its centre may be over that bottom.
+        let water = self
+            .water_at(position.0.with_y(underside))
+            .filter(|water| *water > ground);
         Some(Craft {
             position: position.0,
             forward: rotation.0 * Vec3::NEG_Z,
@@ -132,15 +138,24 @@ impl Sensing<'_, '_> {
             .map(|heightmap| heightmap.world_height_at(xz.x, xz.y))
     }
 
-    fn water_at(&self, xz: Vec2) -> Option<f32> {
-        self.water.as_ref()?.surface_at(xz).map(|(_, y)| y)
+    /// The level of the water at `at`, where it is in some: the sea's and a
+    /// lake's at any height, a built piece's pool's only from its bottom up
+    /// (#1949).
+    fn water_at(&self, at: Vec3) -> Option<f32> {
+        self.water.as_ref()?.surface_at(at).map(|(_, y)| y)
     }
 }
 
 impl Terrain for Sensing<'_, '_> {
+    /// The water is asked at the ground (#1949): a pool whose bottom is over
+    /// the ground - a raised pool on a building, which the ground under it
+    /// does not reach - is not on it, as the building it stands on is not.
+    /// Where there is no ground to read, at the bottom of everything: the
+    /// sea and the lakes, as before, and no pool.
     fn surface_at(&self, xz: Vec2) -> f32 {
         let ground = self.ground_at(xz).unwrap_or(f32::NEG_INFINITY);
-        self.water_at(xz).map_or(ground, |water| water.max(ground))
+        self.water_at(Vec3::new(xz.x, ground, xz.y))
+            .map_or(ground, |water| water.max(ground))
     }
 
     /// Sweeps the body's own collider along `toward`, as it stands.

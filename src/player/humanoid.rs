@@ -336,9 +336,10 @@ pub fn humanoid_water_state(
 /// Classify the avatar's relationship to the water column at its XZ
 /// position, given whether it was swimming a moment ago, along `column`: its
 /// feet `column.drop` under `chassis_y`. The classifier samples
-/// [`WaterSurfaces::surface_at`] at the avatar's XZ to locate the containing
-/// surface, then compares the submerged share of the column's height against
-/// `SWIM_FROM` (to start swimming) or `SWIM_UNTIL` (to stop).
+/// [`WaterSurfaces::surface_at`] at the avatar's feet to locate the
+/// containing surface - a pool whose bottom is over the feet is no water to
+/// them (#1949) - then compares the submerged share of the column's height
+/// against `SWIM_FROM` (to start swimming) or `SWIM_UNTIL` (to stop).
 pub fn water_state(
     was_swimming: bool,
     chassis_y: f32,
@@ -347,10 +348,11 @@ pub fn water_state(
     water_surfaces: &WaterSurfaces,
 ) -> WaterState {
     let height = column.height;
-    let Some((_, surface_y)) = water_surfaces.surface_at(chassis_xz) else {
+    let feet_y = chassis_y - column.drop;
+    let feet = Vec3::new(chassis_xz.x, feet_y, chassis_xz.y);
+    let Some((_, surface_y)) = water_surfaces.surface_at(feet) else {
         return WaterState::Dry;
     };
-    let feet_y = chassis_y - column.drop;
     if feet_y >= surface_y {
         return WaterState::Dry;
     }
@@ -423,12 +425,71 @@ pub(super) fn feet_on_the_ground(
 pub(super) type LocalHumanoid<'w, 's> =
     Query<'w, 's, (Entity, &'static GlobalTransform), (With<LocalPlayer>, With<HumanoidPreset>)>;
 
+/// What lies straight over the camera, as the physics has it (#1949): read
+/// by [`publish_movement_facts`] for [`camera_submerged`].
+#[derive(bevy::ecs::system::SystemParam)]
+pub(super) struct SolidOverhead<'w, 's> {
+    /// `None` in an app with no physics, where nothing is solid.
+    spatial: Option<SpatialQuery<'w, 's>>,
+    /// The gateway veils and portal volumes a body walks through: no roof.
+    sensors: Query<'w, 's, Entity, With<Sensor>>,
+    /// The local player's chassis, whatever preset it runs.
+    local: Query<'w, 's, Entity, With<LocalPlayer>>,
+    /// Whose body each collider is part of: the local player's own are no
+    /// roof either.
+    colliders: Query<'w, 's, &'static ColliderOf>,
+}
+
+impl SolidOverhead<'_, '_> {
+    /// Whether something solid lies straight over `eye` below height
+    /// `level`: one ray up through the physics, past the local player's own
+    /// colliders and the sensors - the filter the game's ground rays use
+    /// ([`super::ground_ray_filter`]).
+    fn between(&self, eye: Vec3, level: f32) -> bool {
+        let Some(spatial) = self.spatial.as_ref() else {
+            return false;
+        };
+        let reach = level - eye.y;
+        if reach.is_nan() || reach <= 0.0 {
+            return false;
+        }
+        let filter = SpatialQueryFilter::default()
+            .with_excluded_entities(self.local.iter().chain(self.sensors.iter()));
+        spatial
+            .cast_ray_predicate(eye, Dir3::Y, reach, true, &filter, &|entity| {
+                self.colliders
+                    .get(entity)
+                    .map_or(true, |of| !self.local.contains(of.body))
+            })
+            .is_some()
+    }
+}
+
+/// Whether a camera with its eye at `eye` is under water (#1241 f160): in
+/// the plane [`WaterSurfaces::surface_at`] finds there, under its surface.
+/// For a plane with a depth - water inside a built piece - only where
+/// nothing solid lies between the eye and the surface straight over it
+/// (`solid_between(eye, level)`, #1949): an eye in the storey under a
+/// raised pool, within the pool's depth, has the slab and the pool's floor
+/// over it, and sees a dry room. The sea and the lakes, with no depth, ask
+/// nothing more.
+fn camera_submerged(
+    eye: Vec3,
+    water: &WaterSurfaces,
+    solid_between: impl Fn(Vec3, f32) -> bool,
+) -> bool {
+    water.surface_at(eye).is_some_and(|(plane, level)| {
+        eye.y < level && (water.planes[plane].depth.is_none() || !solid_between(eye, level))
+    })
+}
+
 pub(super) fn publish_movement_facts(
     live: Option<Res<LiveAvatarRecord>>,
     water_surfaces: Res<WaterSurfaces>,
     query: LocalHumanoid,
     bodies: Query<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<super::rigged::RiggedRoot>>,
     camera: Query<&GlobalTransform, crate::camera::IsWorldCamera>,
+    overhead: SolidOverhead,
     mut published: ResMut<crate::player::LocalMovement>,
 ) {
     let mut facts = crate::player::LocalMovement::default();
@@ -437,10 +498,10 @@ pub(super) fn publish_movement_facts(
     // water plane is back-face culled, so from below there is nothing at
     // all to see.
     if let Ok(cam) = camera.single() {
-        let eye = cam.translation();
-        facts.camera_submerged = water_surfaces
-            .surface_at(Vec2::new(eye.x, eye.z))
-            .is_some_and(|(_, surface_y)| eye.y < surface_y);
+        facts.camera_submerged =
+            camera_submerged(cam.translation(), &water_surfaces, |eye, level| {
+                overhead.between(eye, level)
+            });
     }
     if let (Some(live), Ok((entity, global_tf))) = (live.as_deref(), query.single())
         && let LocomotionConfig::Humanoid(p) = &live.0.locomotion
@@ -1010,6 +1071,7 @@ mod tests {
                 flow_strength: 0.0,
                 owner: WaterPlane::NO_OWNER,
                 cells: None,
+                depth: None,
             }],
         }
     }
@@ -1103,6 +1165,55 @@ mod tests {
         ));
     }
 
+    /// #1949: a raised pool whose depth is left unset and whose holder gives
+    /// no floor - the fallback - over a sea far below. A 1.8 m body standing
+    /// on the floor of the storey under it, its feet 2.9 m under the pool's
+    /// level (a 2.2 m room, its slab and a pool's own depth), is dry; one
+    /// wading in the pool wades, and one floating at the surface swims.
+    #[test]
+    fn under_a_raised_pool_the_storey_is_dry() {
+        let mut surfaces = pond(10.0, 50.0);
+        surfaces.planes[0].depth = Some(crate::world_builder::compile::water::water_depth(
+            10.0, None, None,
+        ));
+        let at = |feet: f32| 10.0 - feet + 0.9;
+        let state = |was, feet| humanoid_water_state(was, at(feet), Vec2::ZERO, 1.8, &surfaces);
+        assert_eq!(state(false, 2.9), WaterState::Dry, "the storey's floor");
+        assert_eq!(
+            state(true, 2.9),
+            WaterState::Dry,
+            "even swimming a moment ago"
+        );
+        assert!(matches!(state(false, 1.0), WaterState::Wading { .. }));
+        assert!(matches!(
+            state(true, SWIM_FLOAT * 1.8),
+            WaterState::Swimming { .. }
+        ));
+    }
+
+    /// #1949: the camera under a pool's surface within its depth is under
+    /// water only where nothing solid lies between it and the surface; the
+    /// sea's, with no depth, asks nothing of the physics.
+    #[test]
+    fn a_camera_under_a_raised_pool_sees_a_dry_room() {
+        let mut pool = pond(10.0, 50.0);
+        pool.planes[0].depth = Some(2.5);
+        let eye = Vec3::new(0.0, 8.0, 0.0);
+        assert!(!camera_submerged(eye, &pool, |_, _| true), "a slab over it");
+        assert!(camera_submerged(eye, &pool, |_, _| false), "in the pool");
+        assert!(
+            !camera_submerged(Vec3::new(0.0, 7.0, 0.0), &pool, |_, _| false),
+            "under its bottom"
+        );
+        let sea = pond(10.0, 50.0);
+        let asked = std::cell::Cell::new(false);
+        assert!(camera_submerged(eye, &sea, |_, _| {
+            asked.set(true);
+            true
+        }));
+        assert!(!asked.get(), "the sea casts no ray");
+    }
+
     #[test]
     fn picks_highest_stacked_surface() {
         let surfaces = WaterSurfaces {
@@ -1113,6 +1224,7 @@ mod tests {
                     flow_strength: 0.0,
                     owner: WaterPlane::NO_OWNER,
                     cells: None,
+                    depth: None,
                 },
                 WaterPlane {
                     world_from_local: Transform::from_xyz(0.0, 5.0, 0.0),
@@ -1120,6 +1232,7 @@ mod tests {
                     flow_strength: 0.0,
                     owner: WaterPlane::NO_OWNER,
                     cells: None,
+                    depth: None,
                 },
             ],
         };
@@ -2982,6 +3095,7 @@ mod surface {
                 flow_strength: 0.0,
                 owner: WaterPlane::NO_OWNER,
                 cells: None,
+                depth: None,
             }],
         });
         let camera = Transform::from_rotation(Quat::from_rotation_x(-script.pitch));
@@ -3638,6 +3752,34 @@ mod beast_on_foot {
     /// stands again below it as a person does about their chest; its head is
     /// out of the water where it starts, and by the capsule's height it would
     /// have swum with the water under the trunk's middle.
+    /// #1949: unset water's fallback depth keeps the feet of every default
+    /// body floating at its surface in, with 0.3 m to spare - the person,
+    /// each beast, each winged family - and the feet of a body standing in
+    /// the storey under a raised pool (a 2.2 m room, a 0.1 m slab and a
+    /// 0.25 m pool: 2.55 m) out.
+    #[test]
+    fn the_fallback_depth_holds_every_default_body_afloat() {
+        use crate::pds::WaterSurface;
+        use crate::pds::avatar::locomotion::{default_winged, fitted_record};
+        use symbios_avatar::WingedFamily;
+        let mut bodies = vec![("person".to_string(), HumanoidParams::default())];
+        for family in FAMILIES {
+            bodies.push((format!("{family:?}"), params(&beast_record(family)).clone()));
+        }
+        for family in [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider] {
+            let record = fitted_record(default_winged(family));
+            bodies.push((format!("{family:?}"), params(&record).clone()));
+        }
+        for (name, p) in bodies {
+            let afloat = SWIM_FLOAT * WaterColumn::of(&p).height;
+            assert!(
+                afloat + 0.3 <= WaterSurface::FALLBACK_DEPTH,
+                "a {name} floats {afloat} m deep"
+            );
+        }
+        const _: () = assert!(WaterSurface::FALLBACK_DEPTH < 2.2 + 0.1 + 0.25);
+    }
+
     #[test]
     fn a_beast_swims_from_its_back_with_its_head_out() {
         let surfaces = WaterSurfaces {
@@ -3647,6 +3789,7 @@ mod beast_on_foot {
                 flow_strength: 0.0,
                 owner: WaterPlane::NO_OWNER,
                 cells: None,
+                depth: None,
             }],
         };
         for family in FAMILIES {

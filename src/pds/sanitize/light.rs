@@ -81,14 +81,31 @@ pub fn max_light_brightness(range: f32) -> f32 {
     Fp((brightest * 10_000.0).floor() / 10_000.0).on_wire().0
 }
 
+/// How far past [`limits::LIGHT_FLASH_DEPTH`] a part's dip must reach to
+/// count as a flash: past the `f32` error of a depth worked from an amount
+/// on the wire's grid (an amount of 0.3 times [`FLICKER_FINE_SHARE`] comes
+/// out a hair over 0.1, about 1e-8), and well under the least step a part's
+/// depth takes between two amounts on the grid (a third of 1/10 000, 3.3e-5),
+/// so a dip of exactly a tenth never flashes and the next one up always
+/// does (#1950).
+const FLASH_DEPTH_EPSILON: f32 = 1e-6;
+
+/// Whether a part of a light dipping by `depth` (a share of its power)
+/// flashes: deeper than [`limits::LIGHT_FLASH_DEPTH`], by more than
+/// [`FLASH_DEPTH_EPSILON`].
+fn flashes(depth: f32) -> bool {
+    depth > limits::LIGHT_FLASH_DEPTH + FLASH_DEPTH_EPSILON
+}
+
 /// The fastest `rate` a flicker (`pulse` false) or pulse of `amount` may
 /// move at, on the wire's grid: [`limits::MAX_LIGHT_FLICKER_RATE_HZ`] for
 /// one too shallow to flash, else what holds it to
 /// [`limits::MAX_LIGHT_FLASHES_HZ`] - a pulse's period, a flicker's broad
-/// waver and, where its share of the dip flashes too, its quicker fine
-/// shimmer.
+/// waver and, where its share of the dip flashes too, its coupled shimmer,
+/// [`FLICKER_FINE_RATE`] times quicker (so the waver is held to 1/2.7 of
+/// the cap). Each part is counted on its own, where its share of the dip
+/// flashes (by `flashes`, with its stated epsilon).
 pub fn max_flicker_rate_hz(pulse: bool, amount: f32) -> f32 {
-    let flashes = |depth: f32| depth > limits::LIGHT_FLASH_DEPTH;
     let fastest = if pulse {
         if flashes(amount) {
             limits::MAX_LIGHT_FLASHES_HZ
@@ -102,14 +119,30 @@ pub fn max_flicker_rate_hz(pulse: bool, amount: f32) -> f32 {
     } else {
         limits::MAX_LIGHT_FLICKER_RATE_HZ
     };
-    // Down onto the grid, so the bound a peer reads back is still under it.
-    Fp((fastest * 10_000.0).floor() / 10_000.0).on_wire().0
+    on_grid_below(fastest)
+}
+
+/// The fastest a flicker of `amount` may move its shimmer on a rate of its
+/// own (`LightFlicker::Flicker`'s `shimmer_rate`, #1950):
+/// [`limits::MAX_LIGHT_FLICKER_RATE_HZ`] where its share of the dip is too
+/// shallow to flash, whatever its broad waver does; `None` where the
+/// shimmer flashes, which then moves coupled to the waver, held as
+/// [`max_flicker_rate_hz`] says - never both parts at the flash cap each.
+pub fn max_shimmer_rate_hz(amount: f32) -> Option<f32> {
+    (!flashes(amount * FLICKER_FINE_SHARE))
+        .then(|| on_grid_below(limits::MAX_LIGHT_FLICKER_RATE_HZ))
+}
+
+/// `hz` down onto the grid, so the bound a peer reads back is still under it.
+fn on_grid_below(hz: f32) -> f32 {
+    Fp((hz * 10_000.0).floor() / 10_000.0).on_wire().0
 }
 
 impl Sanitize for LightFlicker {
     fn sanitize(&mut self) {
         let pulse = matches!(self, LightFlicker::Pulse { .. });
-        if let LightFlicker::Flicker { amount, rate } | LightFlicker::Pulse { amount, rate } = self
+        if let LightFlicker::Flicker { amount, rate, .. } | LightFlicker::Pulse { amount, rate } =
+            self
         {
             *amount = bounded(*amount, 0.0, 1.0, 0.0);
             let fastest = max_flicker_rate_hz(pulse, amount.0);
@@ -119,6 +152,27 @@ impl Sanitize for LightFlicker {
                 fastest,
                 1.0_f32.min(fastest),
             );
+        }
+        if let LightFlicker::Flicker {
+            amount,
+            rate,
+            shimmer_rate,
+        } = self
+        {
+            // A shimmer that flashes moves coupled: its own rate is dropped.
+            *shimmer_rate = match (*shimmer_rate, max_shimmer_rate_hz(amount.0)) {
+                (Some(own), Some(fastest)) => {
+                    let coupled = (rate.0 * FLICKER_FINE_RATE)
+                        .clamp(limits::MIN_LIGHT_FLICKER_RATE_HZ, fastest);
+                    Some(bounded(
+                        own,
+                        limits::MIN_LIGHT_FLICKER_RATE_HZ,
+                        fastest,
+                        coupled,
+                    ))
+                }
+                _ => None,
+            };
         }
     }
 }
@@ -177,7 +231,7 @@ mod tests {
                 amount: Fp(1.0),
                 rate: Fp(limits::MAX_LIGHT_FLASHES_HZ),
             }),
-            "a full-depth pulse flashes no faster than lightning"
+            "a full-depth pulse flashes at most three times a second"
         );
 
         let low = sanitized(LightSource {
@@ -192,6 +246,7 @@ mod tests {
             flicker: Some(LightFlicker::Flicker {
                 amount: Fp(-1.0),
                 rate: Fp(0.0),
+                shimmer_rate: Some(Fp(f32::NAN)),
             }),
             ..LightSource::default()
         });
@@ -212,7 +267,9 @@ mod tests {
             Some(LightFlicker::Flicker {
                 amount: Fp(0.0),
                 rate: Fp(limits::MIN_LIGHT_FLICKER_RATE_HZ),
-            })
+                shimmer_rate: Some(Fp(0.135)),
+            }),
+            "a NaN shimmer rate takes the coupled one, 2.7 times the waver's"
         );
     }
 
@@ -332,49 +389,207 @@ mod tests {
         }
     }
 
-    /// No light flashes faster than lightning, at any setting (#1921): a
-    /// pulse or flicker dipping past a tenth of its light is held to two
-    /// flashes a second - a deep flicker's fine shimmer, 2.7 times its rate,
-    /// included - while a shallow one may move as fast as the ceiling; and
-    /// every bound sits on the wire's grid, at or under the flash cap.
-    #[test]
-    fn no_light_flashes_faster_than_lightning() {
-        let fast = |kind: &str, amount: f32| {
-            let mut flicker = match kind {
-                "pulse" => LightFlicker::Pulse {
-                    amount: Fp(amount),
-                    rate: Fp(1e4),
-                },
-                _ => LightFlicker::Flicker {
-                    amount: Fp(amount),
-                    rate: Fp(1e4),
-                },
-            };
-            flicker.sanitize();
-            match flicker {
-                LightFlicker::Pulse { rate, .. } | LightFlicker::Flicker { rate, .. } => rate.0,
-                LightFlicker::Unknown => unreachable!(),
-            }
+    /// The fastest rate `flicker` of `amount` may move at, asked far faster
+    /// (with an own shimmer rate as fast, for a flicker), and the shimmer
+    /// rate it keeps.
+    fn fastest(kind: &str, amount: f32) -> (f32, Option<f32>) {
+        let mut flicker = match kind {
+            "pulse" => LightFlicker::Pulse {
+                amount: Fp(amount),
+                rate: Fp(1e4),
+            },
+            _ => LightFlicker::Flicker {
+                amount: Fp(amount),
+                rate: Fp(1e4),
+                shimmer_rate: Some(Fp(1e4)),
+            },
         };
+        flicker.sanitize();
+        match flicker {
+            LightFlicker::Pulse { rate, .. } => (rate.0, None),
+            LightFlicker::Flicker {
+                rate, shimmer_rate, ..
+            } => (rate.0, shimmer_rate.map(|s| s.0)),
+            LightFlicker::Unknown => unreachable!(),
+        }
+    }
+
+    /// No light flashes more than three times a second, at any setting
+    /// (#1921, raised from two by the owner in #1950): a pulse or flicker
+    /// dipping past a tenth of its light is held to three flashes a second,
+    /// a deep flicker's coupled shimmer (2.7 times its rate) included,
+    /// while a shallow one may move as fast as the ceiling; and every bound
+    /// sits on the wire's grid, at or under the flash cap.
+    #[test]
+    fn no_light_flashes_more_than_three_times_a_second() {
         let flashes = limits::MAX_LIGHT_FLASHES_HZ;
-        assert_eq!(fast("pulse", 1.0), flashes);
-        assert_eq!(fast("pulse", 0.11), flashes);
-        assert_eq!(fast("pulse", 0.1), limits::MAX_LIGHT_FLICKER_RATE_HZ);
-        // A full flicker's fine shimmer (a third of the dip) flashes too.
-        let fine = fast("flicker", 1.0);
+        assert_eq!(flashes, 3.0, "WCAG 2.3.1's three flashes, the owner's");
+        assert_eq!(fastest("pulse", 1.0).0, 3.0);
+        assert_eq!(fastest("pulse", 0.11).0, 3.0);
+        assert_eq!(fastest("pulse", 0.1).0, limits::MAX_LIGHT_FLICKER_RATE_HZ);
+        // Three a second is accepted as asked; more is slowed to three.
+        for (asked, held) in [(3.0, 3.0), (2.5, 2.5), (3.0001, 3.0), (5.0, 3.0)] {
+            let mut pulse = LightFlicker::Pulse {
+                amount: Fp(0.6),
+                rate: Fp(asked),
+            };
+            pulse.sanitize();
+            assert_eq!(
+                pulse,
+                LightFlicker::Pulse {
+                    amount: Fp(0.6),
+                    rate: Fp(held),
+                },
+                "{asked}"
+            );
+        }
+        // A full flicker's coupled shimmer (a third of the dip) flashes
+        // too: the waver is held to 1/2.7 of the cap, the shimmer to it,
+        // and no own shimmer rate is kept.
+        let (fine, own) = fastest("flicker", 1.0);
+        assert_eq!(fine, 1.1111);
         assert!(fine * FLICKER_FINE_RATE <= flashes, "{fine}");
         assert!(fine * FLICKER_FINE_RATE > flashes - 0.001, "{fine}");
-        assert_eq!(fine, Fp(fine).on_wire().0, "on the grid");
+        assert_eq!(own, None, "a shimmer that flashes moves coupled");
+        assert_eq!(fastest("flicker", 0.31), (1.1111, None));
         // A middling one: only its broad waver flashes.
-        assert_eq!(fast("flicker", 0.25), flashes);
+        assert_eq!(fastest("flicker", 0.25).0, flashes);
         // A shallow one may be quick.
-        assert_eq!(fast("flicker", 0.12), limits::MAX_LIGHT_FLICKER_RATE_HZ);
+        assert_eq!(
+            fastest("flicker", 0.12).0,
+            limits::MAX_LIGHT_FLICKER_RATE_HZ
+        );
         // A fresh flicker and pulse are already within it.
         for kind in LightFlicker::KINDS {
             let fresh = LightFlicker::fresh(kind).expect("a kind");
             let mut again = fresh.clone();
             again.sanitize();
             assert_eq!(again, fresh, "{kind}");
+        }
+    }
+
+    /// A shimmer too shallow to flash runs on its own rate up to the
+    /// ceiling (#1950), beside a broad waver deep enough to flash and held
+    /// to the flash cap: a fire's quick flutter over its slow swell. Until
+    /// then a deep waver dragged its shimmer down with it, to 2.7 times
+    /// two a second.
+    #[test]
+    fn a_shallow_shimmer_runs_on_its_own_rate_beside_a_deep_waver() {
+        let top = limits::MAX_LIGHT_FLICKER_RATE_HZ;
+        // The strongest flicker whose shimmer does not flash: a waver of
+        // 0.2 at three a second, a shimmer of 0.1 at eight.
+        assert_eq!(
+            fastest("flicker", 0.3),
+            (limits::MAX_LIGHT_FLASHES_HZ, Some(top))
+        );
+        assert_eq!(
+            fastest("flicker", 0.29),
+            (limits::MAX_LIGHT_FLASHES_HZ, Some(top))
+        );
+        assert!(
+            top > 2.0 * FLICKER_FINE_RATE,
+            "above the old coupled shimmer"
+        );
+        // A slow swell under a quick flutter, as asked.
+        let mut fire = LightFlicker::Flicker {
+            amount: Fp(0.3),
+            rate: Fp(0.6),
+            shimmer_rate: Some(Fp(7.5)),
+        };
+        let asked = fire.clone();
+        fire.sanitize();
+        assert_eq!(fire, asked, "kept as asked");
+        // Bounded, on the grid; unset stays unset (coupled).
+        for (own, held) in [
+            (0.0, limits::MIN_LIGHT_FLICKER_RATE_HZ),
+            (9.0, top),
+            (4.123_456, 4.1235),
+        ] {
+            let mut flicker = LightFlicker::Flicker {
+                amount: Fp(0.2),
+                rate: Fp(1.0),
+                shimmer_rate: Some(Fp(own)),
+            };
+            flicker.sanitize();
+            let LightFlicker::Flicker { shimmer_rate, .. } = flicker else {
+                unreachable!()
+            };
+            assert_eq!(shimmer_rate, Some(Fp(held)), "{own}");
+        }
+        let mut coupled = LightFlicker::fresh("Flicker").expect("a kind");
+        coupled.sanitize();
+        assert!(matches!(
+            coupled,
+            LightFlicker::Flicker {
+                shimmer_rate: None,
+                ..
+            }
+        ));
+        // A shimmer that flashes drops its own rate, and a flicker made
+        // shallow again keeps none: the owner sets it again (the editor
+        // remembers it while they drag).
+        let mut deep = LightFlicker::Flicker {
+            amount: Fp(0.5),
+            rate: Fp(1.0),
+            shimmer_rate: Some(Fp(8.0)),
+        };
+        deep.sanitize();
+        assert_eq!(
+            deep,
+            LightFlicker::Flicker {
+                amount: Fp(0.5),
+                rate: Fp(1.0),
+                shimmer_rate: None,
+            }
+        );
+    }
+
+    /// The edge of the shimmer's flash (#1950): amount 0.3, whose shimmer
+    /// is exactly a tenth on the wire's grid but a hair over it in `f32`,
+    /// is not slowed to the coupled 1.11 a second - it moves at three a
+    /// second, its shimmer on its own rate; the next amount up on the grid
+    /// is. The waver's edge (0.15) alike.
+    #[test]
+    fn amount_three_tenths_is_not_slowed_by_its_shimmer() {
+        const {
+            assert!(
+                0.3_f32 * FLICKER_FINE_SHARE > limits::LIGHT_FLASH_DEPTH,
+                "the f32 hair"
+            )
+        };
+        let mut edge = LightFlicker::Flicker {
+            amount: Fp(0.3),
+            rate: Fp(3.0),
+            shimmer_rate: None,
+        };
+        let asked = edge.clone();
+        edge.sanitize();
+        assert_eq!(edge, asked, "0.30 at 3 Hz is not slowed");
+        assert_eq!(fastest("flicker", 0.3001), (1.1111, None));
+        assert_eq!(
+            fastest("flicker", 0.15).0,
+            limits::MAX_LIGHT_FLICKER_RATE_HZ
+        );
+        assert_eq!(fastest("flicker", 0.1501).0, limits::MAX_LIGHT_FLASHES_HZ);
+        assert_eq!(fastest("pulse", 0.1001).0, limits::MAX_LIGHT_FLASHES_HZ);
+    }
+
+    /// A flicker saved before #1950 - no shimmer rate, a rate held to the
+    /// old caps - reads back unchanged: every cap only rose, so the
+    /// sanitiser moves nothing in it and it saves the same bytes.
+    #[test]
+    fn an_old_flicker_reads_as_before() {
+        for text in [
+            r#"{"$type":"network.symbios.light.flicker","amount":2900,"rate":20000}"#,
+            r#"{"$type":"network.symbios.light.flicker","amount":10000,"rate":7407}"#,
+            r#"{"$type":"network.symbios.light.flicker","amount":1200,"rate":40000}"#,
+            r#"{"$type":"network.symbios.light.pulse","amount":10000,"rate":20000}"#,
+        ] {
+            let read: LightFlicker = serde_json::from_str(text).expect("decodes");
+            let mut held = read.clone();
+            held.sanitize();
+            assert_eq!(held, read, "{text}");
+            assert_eq!(serde_json::to_string(&held).expect("serialise"), text);
         }
     }
 

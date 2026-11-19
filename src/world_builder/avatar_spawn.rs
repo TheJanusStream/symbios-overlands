@@ -14,12 +14,15 @@
 //!      preset's chassis collider is the only physics body on an
 //!      avatar).
 //!
-//! Terrain / Water / Portal kinds are stripped upstream by
-//! [`crate::pds::sanitize_avatar_visuals`], so the unreachable arms
-//! never fire here. The avatar caller still provides the same
-//! mutable references the room compiler needs (caches, foliage tasks,
-//! water surface registry, …) - most of those are unused for avatars
-//! but the borrow shapes have to match the existing `SpawnCtx`.
+//! For an avatar, Terrain / Water / Portal kinds are stripped upstream by
+//! [`crate::pds::sanitize_avatar_visuals`], and an instance set strips its
+//! water ([`super::instances::strip_for_distance`]). The item preview's
+//! tree is not stripped: its water is drawn and never registered for the
+//! physics, as a detached tree has no world frame to register it in
+//! (#1949, [`super::compile::SpawnCtx::frame`]). Every caller still
+//! provides the same mutable references the room compiler needs (caches,
+//! foliage tasks, water surface registry, …) - most of those are unused
+//! here but the borrow shapes have to match the existing `SpawnCtx`.
 
 use std::collections::HashSet;
 
@@ -246,6 +249,12 @@ pub(crate) fn spawn_detached_tree(
         spin_epoch: 0.0,
         grid_layer: 0,
         shape_variant: variant,
+        // A detached tree moves with what carries it: no world frame to
+        // register water in (#1949). The avatar sanitiser and the instance
+        // sets strip water before it gets here; an item preview's does not,
+        // and its water is drawn and not registered.
+        frame: None,
+        water_floor: None,
     };
     let root = spawn_generator(&mut ctx, tree, cache_key, &[], transform, Some(parent));
     (root, entities_spawned)

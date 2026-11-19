@@ -1,9 +1,12 @@
-//! Room water-level lookup and the dry-land relocation walk used by
-//! water-avoiding placements.
+//! Room water-level lookup, the dry-land relocation walk used by
+//! water-avoiding placements, and how deep water inside a built piece is
+//! (#1949): [`water_depth`], from the record's `depth` or the floor of the
+//! piece that holds it ([`holder_floor`]), which the dispatch registers
+//! with the plane so that nothing under its bottom is in it.
 
 use bevy::prelude::*;
 
-use crate::pds::RoomRecord;
+use crate::pds::{RoomRecord, WaterSurface};
 use crate::water::bodies::RoomWater;
 
 /// The room's sea level: the lowest Water child under any Terrain-rooted
@@ -40,6 +43,57 @@ pub(crate) fn geo_water(
 ) -> Option<&[crate::water::bodies::WaterBody]> {
     let water = heightmap?.ground()?.water();
     (!water.is_empty()).then_some(water)
+}
+
+/// How deep water inside a built piece is (#1949), in world metres under
+/// its surface ([`crate::water::WaterPlane::depth`]), its level `level`:
+///
+/// - its record's `depth` where set - world metres, as the sanitiser holds
+///   it, which a scaled copy does not scale;
+/// - else, where `floor` - the floor of the piece that holds it, the bottom
+///   of its parent node's box in the world ([`holder_floor`]), which a
+///   scaled copy does scale - lies under the level, the distance down to
+///   it, held to [`MIN_WATER_DEPTH`] and [`WaterSurface::FALLBACK_DEPTH`]:
+///   a floor 5 cm under gives the least depth, never the fallback, and a
+///   holder a kilometre tall - a tower, a hollow shell with storeys inside
+///   it - gives the fallback, never its own height;
+/// - else - no box to read, or a floor at or over the level - the fallback.
+///
+/// So unset water is never deeper than the fallback, and the deeper its
+/// holder's floor the deeper it is, up to that.
+///
+/// [`MIN_WATER_DEPTH`]: crate::pds::sanitize::limits::MIN_WATER_DEPTH
+pub(crate) fn water_depth(level: f32, depth: Option<crate::pds::Fp>, floor: Option<f32>) -> f32 {
+    use crate::pds::sanitize::limits::{MAX_WATER_DEPTH, MIN_WATER_DEPTH};
+    if let Some(depth) = depth.map(|depth| depth.0).filter(|depth| depth.is_finite()) {
+        return depth.clamp(MIN_WATER_DEPTH, MAX_WATER_DEPTH);
+    }
+    match floor.map(|floor| level - floor) {
+        Some(down) if down > 0.0 => down.clamp(MIN_WATER_DEPTH, WaterSurface::FALLBACK_DEPTH),
+        _ => WaterSurface::FALLBACK_DEPTH,
+    }
+}
+
+/// The floor of a piece of kind `kind` standing at `frame` in the world
+/// (#1949): the lowest corner of its box ([`crate::pds::ruin::kind_box`]),
+/// or `None` for a kind with no box to read - a grammar, a plant, a group
+/// with nothing of its own.
+pub(crate) fn holder_floor(kind: &crate::pds::GeneratorKind, frame: &Transform) -> Option<f32> {
+    let (min, max) = crate::pds::ruin::kind_box(kind)?;
+    let (min, max) = (Vec3::from(min), Vec3::from(max));
+    (0..8)
+        .map(|corner| {
+            let pick = |bit: u32, lo: f32, hi: f32| if corner & bit == 0 { lo } else { hi };
+            frame
+                .transform_point(Vec3::new(
+                    pick(1, min.x, max.x),
+                    pick(2, min.y, max.y),
+                    pick(4, min.z, max.z),
+                ))
+                .y
+        })
+        .reduce(f32::min)
+        .filter(|floor| floor.is_finite())
 }
 
 /// Probe spacing along the bearing of [`relocate_above_water`] (m).
@@ -812,5 +866,75 @@ mod water_avoidance_tests {
             wide.x > 30.0,
             "ring-sampled anchor must move until the footprint clears: {wide:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::{Fp, Fp3, GeneratorKind};
+
+    /// #1949: the depth rule. A set depth wins; unset, the distance down to
+    /// the holder's floor, never under the least depth nor over the
+    /// fallback - so the depth grows with the floor's, with no jump where
+    /// the floor comes within the least depth of the level; with no floor,
+    /// or one at or over the level, the fallback.
+    #[test]
+    fn the_depth_is_the_records_or_the_holders_floor_up_to_the_fallback() {
+        use crate::pds::sanitize::limits::MIN_WATER_DEPTH;
+        let fallback = WaterSurface::FALLBACK_DEPTH;
+        let near = |got: f32, want: f32| (got - want).abs() < 1e-5;
+        assert_eq!(water_depth(10.0, Some(Fp(0.5)), Some(0.0)), 0.5, "set wins");
+        assert_eq!(water_depth(10.0, Some(Fp(40.0)), None), 40.0, "set, deep");
+        assert!(
+            near(water_depth(10.0, None, Some(9.95)), MIN_WATER_DEPTH),
+            "5 cm under"
+        );
+        assert!(
+            near(water_depth(10.0, None, Some(9.91)), MIN_WATER_DEPTH),
+            "9 cm under"
+        );
+        assert!(near(water_depth(10.0, None, Some(9.9)), 0.1), "10 cm under");
+        assert!(near(water_depth(10.0, None, Some(8.8)), 1.2), "the floor");
+        assert_eq!(water_depth(10.0, None, Some(0.0)), fallback, "10 m under");
+        assert_eq!(water_depth(10.0, None, Some(-990.0)), fallback, "a tower");
+        assert_eq!(water_depth(10.0, None, Some(10.0)), fallback, "at it");
+        assert_eq!(water_depth(10.0, None, Some(12.0)), fallback, "over it");
+        assert_eq!(water_depth(10.0, None, Some(f32::NAN)), fallback);
+        assert_eq!(water_depth(10.0, None, None), fallback, "no box");
+        // Never deeper as the floor rises, and never past the fallback.
+        let mut last = 0.0;
+        for cm in 1..2000 {
+            let depth = water_depth(10.0, None, Some(10.0 - cm as f32 / 100.0));
+            assert!(depth >= last && depth <= fallback, "{cm} cm: {depth}");
+            last = depth;
+        }
+    }
+
+    /// #1949: a box's floor is its lowest corner where it stands - raised,
+    /// turned and stretched - and a kind with no box gives none.
+    #[test]
+    fn a_holders_floor_is_its_lowest_corner() {
+        let mut basin = GeneratorKind::default_cuboid();
+        let GeneratorKind::Cuboid { size, .. } = &mut basin else {
+            panic!("the default cuboid is a cuboid");
+        };
+        *size = Fp3([4.0, 2.0, 4.0]);
+        let raised = Transform::from_xyz(3.0, 50.0, -7.0)
+            .with_rotation(Quat::from_rotation_y(0.7))
+            .with_scale(Vec3::new(1.0, 1.5, 2.0));
+        let floor = holder_floor(&basin, &raised).expect("a box has a floor");
+        assert!((floor - 48.5).abs() < 1e-4, "{floor}");
+        // Tipped on its edge, its lowest corner is lower than its face.
+        let tipped = Transform::from_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4));
+        let floor = holder_floor(&basin, &tipped).expect("a box has a floor");
+        assert!(
+            (floor + 3.0 / std::f32::consts::SQRT_2).abs() < 1e-4,
+            "{floor}"
+        );
+        let water = GeneratorKind::Water {
+            surface: Default::default(),
+        };
+        assert_eq!(holder_floor(&water, &raised), None);
     }
 }

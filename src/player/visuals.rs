@@ -761,3 +761,66 @@ mod spin_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod water_tests {
+    use super::*;
+    use crate::pds::{Fp3, Generator, GeneratorKind};
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// #1949: a tree spawned with no world frame - the item preview's,
+    /// through this very path - draws the water it holds and registers none:
+    /// a plane registered in its parent's frame is phantom water round the
+    /// world's origin, one more at every restage.
+    #[test]
+    fn a_detached_tree_draws_its_water_and_registers_none() {
+        let mut basin = Generator::default_cuboid();
+        let mut water = Generator::from_kind(GeneratorKind::Water {
+            surface: Default::default(),
+        });
+        water.transform.translation = Fp3([0.0, 0.885, 0.0]);
+        water.transform.scale = Fp3([0.01, 1.0, 0.01]);
+        basin.children.push(water);
+        let mut app = spawn_path_app();
+        let stage = app.world_mut().spawn(Transform::default()).id();
+        for _ in 0..2 {
+            let basin = basin.clone();
+            app.world_mut()
+                .run_system_once(
+                    move |mut commands: Commands,
+                          mut meshes: ResMut<Assets<Mesh>>,
+                          mut materials: ResMut<Assets<StandardMaterial>>,
+                          mut images: ResMut<Assets<Image>>,
+                          mut deps: AvatarSpawnDeps| {
+                        spawn_visual_tree(
+                            &mut commands,
+                            stage,
+                            &basin,
+                            &mut meshes,
+                            &mut materials,
+                            &mut images,
+                            &mut deps,
+                            false,
+                            None,
+                        );
+                    },
+                )
+                .expect("spawns");
+        }
+        let world = app.world_mut();
+        let drawn = world
+            .query_filtered::<(), With<crate::terrain::WaterVolume>>()
+            .iter(world)
+            .count();
+        assert_eq!(drawn, 2, "its water is drawn, once a spawn");
+        let indexed = world
+            .query::<&crate::water::WaterPlaneIndex>()
+            .iter(world)
+            .count();
+        assert_eq!(indexed, 0, "and routes no wake to a plane");
+        assert!(
+            world.resource::<WaterSurfaces>().planes.is_empty(),
+            "and no water is registered"
+        );
+    }
+}

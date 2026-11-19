@@ -86,12 +86,20 @@ fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUnifo
     }
 }
 
+/// Water drawn as a flat plane `world_extent` across at `placement_tf` in
+/// its parent's frame, and registered for the physics as `registered` says
+/// (#1949): the same plane's transform in the world's frame, which the
+/// registry's readers ask in, and its depth ([`WaterPlane::depth`]; `None`:
+/// water all the way down, the sea's). With no `registered` - a tree with
+/// no world frame, an item preview's - it is drawn and not registered: a
+/// plane in its parent's frame would be water round the world's origin.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_water_volume(
     commands: &mut Commands,
     surface: &WaterSurface,
     env: &Environment,
     placement_tf: Transform,
+    registered: Option<(Transform, Option<f32>)>,
     world_extent: f32,
     meshes: &mut Assets<Mesh>,
     water_materials: &mut Assets<WaterMaterial>,
@@ -117,8 +125,8 @@ pub(super) fn spawn_water_volume(
     // The mesh half-extent is recorded BEFORE the transform's scale is
     // applied - `WaterSurfaces::surface_at` re-applies the scale via the
     // inverse transform when testing containment.
-    let plane = WaterPlane {
-        world_from_local: placement_tf,
+    let plane = registered.map(|(world_tf, depth)| WaterPlane {
+        world_from_local: world_tf,
         local_half_extents: Vec2::splat(half_extent),
         flow_strength: surface.flow_strength.0,
         // Placement ownership lets the incremental compiler retire
@@ -126,13 +134,16 @@ pub(super) fn spawn_water_volume(
         // spawns carry NO_OWNER and only fall to full-pass clears.
         owner,
         cells: None,
-    };
+        depth,
+    });
     spawn_water_surface(
         commands,
         surface,
         env,
         mesh,
+        placement_tf,
         plane,
+        owner,
         water_materials,
         water_surfaces,
     )
@@ -160,32 +171,42 @@ pub(super) fn spawn_water_body(
     // Its rectangle is the whole grid and the half cell round it, its
     // cells' squares: the cells bound it.
     let reach = Vec2::new(grid.width as f32, grid.height as f32) * grid.scale * 0.5;
+    let world_tf = Transform::from_xyz(0.0, body.level, 0.0);
     let plane = WaterPlane {
-        world_from_local: Transform::from_xyz(0.0, body.level, 0.0),
+        world_from_local: world_tf,
         local_half_extents: reach,
         flow_strength: surface.flow_strength.0,
         owner,
         cells: Some(body.cells.clone()),
+        depth: None,
     };
     spawn_water_surface(
         commands,
         surface,
         env,
         mesh,
-        plane,
+        world_tf,
+        Some(plane),
+        owner,
         water_materials,
         water_surfaces,
     )
 }
 
-/// Spawn a water surface drawn as `mesh` with `surface`'s material, placed
-/// as `plane` says and registered there for the physics to find.
+/// Spawn a water surface drawn as `mesh` with `surface`'s material at
+/// `tf`, in the frame of whatever it is hung under (the world's, for a
+/// body), retired with placement `owner`, and registered as `plane` says,
+/// in the world's frame, for the physics to find - or, with no `plane`,
+/// drawn alone (#1949).
+#[allow(clippy::too_many_arguments)]
 fn spawn_water_surface(
     commands: &mut Commands,
     surface: &WaterSurface,
     env: &Environment,
     mesh: Handle<Mesh>,
-    plane: WaterPlane,
+    tf: Transform,
+    plane: Option<WaterPlane>,
+    owner: usize,
     water_materials: &mut Assets<WaterMaterial>,
     water_surfaces: &mut WaterSurfaces,
 ) -> Entity {
@@ -219,26 +240,25 @@ fn spawn_water_surface(
     // framework's water-wake consumer walks every `WaterVolume` and
     // uses this index to route contact samples (which the
     // ContactClassifier emits indexed against `WaterSurfaces.planes`)
-    // to the correct material asset.
-    let (tf, owner) = (plane.world_from_local, plane.owner);
-    let plane_idx = water_surfaces.planes.len();
-    water_surfaces.planes.push(plane);
-
-    commands
-        .spawn((
-            Mesh3d(mesh),
-            MeshMaterial3d(water_mat),
-            tf,
-            WaterVolume,
-            WaterPlaneIndex(plane_idx),
-            RoomEntity,
-            // Same owner as the registry plane above: the incremental
-            // compiler's flat unit sweep retires this mesh even when the
-            // gizmo has detached it from its anchor hierarchy (the
-            // "duplicate water layer after a Y drag" bug).
-            super::PlacementUnit(owner),
-        ))
-        .id()
+    // to the correct material asset. A surface drawn alone has no plane to
+    // route to, and no index.
+    let mut volume = commands.spawn((
+        Mesh3d(mesh),
+        MeshMaterial3d(water_mat),
+        tf,
+        WaterVolume,
+        RoomEntity,
+        // Same owner as the registry plane below: the incremental
+        // compiler's flat unit sweep retires this mesh even when the
+        // gizmo has detached it from its anchor hierarchy (the
+        // "duplicate water layer after a Y drag" bug).
+        super::PlacementUnit(owner),
+    ));
+    if let Some(plane) = plane {
+        volume.insert(WaterPlaneIndex(water_surfaces.planes.len()));
+        water_surfaces.planes.push(plane);
+    }
+    volume.id()
 }
 
 /// Thin `SpawnCtx` wrapper around [`build_procedural_material`] for the

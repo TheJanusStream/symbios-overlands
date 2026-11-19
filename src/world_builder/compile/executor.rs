@@ -177,6 +177,9 @@ pub(crate) fn compile_room_record(
             spin_epoch: 0.0,
             grid_layer: 0,
             shape_variant: None,
+            // Set per placement by `dispatch_top_level` (#1949).
+            frame: None,
+            water_floor: None,
         };
 
         loop {
@@ -780,7 +783,13 @@ fn start_unit(
         Placement::Absolute { generator_ref, .. } => {
             // One dispatch - atomic; a single blueprint stays the
             // smallest unit of work the slicer can schedule.
-            dispatch_top_level(ctx, generator_ref, Transform::IDENTITY, anchor);
+            dispatch_top_level(
+                ctx,
+                generator_ref,
+                Transform::IDENTITY,
+                anchor,
+                &anchor_world_tf,
+            );
             UnitStart::Committed(
                 index,
                 CompiledUnit {
@@ -834,7 +843,14 @@ fn start_unit(
                 ScatterBounds::Circle { center, .. } => Vec2::new(center.0[0], center.0[1]),
                 ScatterBounds::Rect { center, .. } => Vec2::new(center.0[0], center.0[1]),
             };
-            let water = ctx.water_surfaces.for_scatter(scatter_center_xz);
+            // A built piece's pool counts where the ground at the centre
+            // is no lower than its bottom (#1949).
+            let centre_ground = ctx
+                .heightmap
+                .map(|hm| hm.world_height_at(scatter_center_xz.x, scatter_center_xz.y));
+            let water = ctx
+                .water_surfaces
+                .for_scatter(scatter_center_xz, centre_ground);
             UnitStart::InProgress(UnitCursor {
                 index,
                 fingerprint: queued.fingerprint,
@@ -954,7 +970,13 @@ fn step_unit(
                 // reads where a copy stands across the ground); their
                 // lights are told apart by their layer.
                 ctx.grid_layer = iy;
-                dispatch_top_level(ctx, generator_ref, cell_tf, cursor.anchor);
+                dispatch_top_level(
+                    ctx,
+                    generator_ref,
+                    cell_tf,
+                    cursor.anchor,
+                    &cursor.anchor_world_tf,
+                );
                 ctx.grid_layer = 0;
                 ctx.end_copy(generator_ref);
             }
@@ -1069,7 +1091,13 @@ fn step_unit(
 
                 // A small scattered copy is cut by distance (#1480).
                 ctx.begin_copy(generator_ref, &cell_tf);
-                dispatch_top_level(ctx, generator_ref, cell_tf, cursor.anchor);
+                dispatch_top_level(
+                    ctx,
+                    generator_ref,
+                    cell_tf,
+                    cursor.anchor,
+                    &cursor.anchor_world_tf,
+                );
                 ctx.end_copy(generator_ref);
                 *spawned += 1;
             }
@@ -1541,7 +1569,7 @@ mod tests {
             (2, 2),
             "the sea and the lake"
         );
-        let at = |x: f32, z: f32| surfaces.surface_at(Vec2::new(x, z)).map(|(_, y)| y);
+        let at = |x: f32, z: f32| surfaces.surface_at(Vec3::new(x, 0.0, z)).map(|(_, y)| y);
         assert_eq!(at(40.0, 0.0), Some(26.0), "the dip: the lake's");
         assert_eq!(at(28.0, 0.0), Some(26.0));
         assert_eq!(at(-15.0, 0.0), Some(2.0), "the valley: the sea's");
@@ -1557,6 +1585,19 @@ mod tests {
             .query(Vec3::new(40.0, 25.0, 0.0))
             .expect("in the lake");
         assert!((swimming.depth - 1.0).abs() < 1e-4);
+        // #1949: the sea and the lake have no bottom, and answer the same at
+        // every height a body can be - far under the sea, on its bed, at the
+        // lake's floor, over both, in the sky.
+        assert!(surfaces.planes.iter().all(|plane| plane.depth.is_none()));
+        for (x, z) in [(40.0, 0.0), (28.0, 0.0), (-15.0, 0.0), (40.0, 30.0)] {
+            for y in [-1.0e4, -50.0, 0.0, 2.0, 22.0, 26.0, 31.0, 500.0, 1.0e4] {
+                assert_eq!(
+                    surfaces.surface_at(Vec3::new(x, y, z)).map(|(_, y)| y),
+                    at(x, z),
+                    "({x}, {y}, {z})"
+                );
+            }
+        }
 
         let (dry, volumes, node) = compiled((40.0, 40.0), true);
         assert_eq!((dry.planes.len(), volumes), (1, 1), "the sea alone");
@@ -1572,7 +1613,241 @@ mod tests {
         let (unbuilt, volumes, node) = compiled((40.0, 0.0), false);
         assert_eq!((unbuilt.planes.len(), volumes), (1, 1), "the sea alone");
         assert_eq!(unbuilt.planes[0].world_from_local.translation.y, 2.0);
+        // The sea is registered in the world's frame (#1949): under the
+        // terrain's anchor at the origin, its own transform to the bit.
+        assert_eq!(
+            unbuilt.planes[0].world_from_local,
+            Transform::from_xyz(0.0, 2.0, 0.0)
+        );
+        assert_eq!(unbuilt.planes[0].depth, None);
         assert_eq!(node, Some(Vec3::new(40.0, 26.0, 0.0)));
+    }
+
+    /// #1949: water inside a built piece is answered where it is drawn - in
+    /// the world's frame, its placement's and every ancestor's composed
+    /// with its own - and only down to its bottom. A basin (a 10 x 2 x 10 m
+    /// box) holding water 0.885 m over its centre, placed at (100, 0, 100)
+    /// and raised to 50 m at (-100, 50, -100), turned a quarter: its water
+    /// is at each place and at neither's height round the origin, where its
+    /// own transform alone put both; and a body on the ground under the
+    /// raised basin is in none of it, while one standing in it is. Unset,
+    /// the bottom is the basin's floor; set, its depth under the level.
+    #[test]
+    fn water_in_a_built_piece_is_where_it_is_drawn_down_to_its_bottom() {
+        let compiled = |depth: Option<f32>| {
+            let extent =
+                (crate::config::terrain::GRID_SIZE - 1) as f32 * crate::config::terrain::CELL_SCALE;
+            let mut water = Generator::from_kind(GeneratorKind::Water {
+                surface: crate::pds::WaterSurface {
+                    depth: depth.map(Fp),
+                    ..Default::default()
+                },
+            });
+            // An 8 m square of water: the plane is drawn the world across,
+            // scaled down to the basin.
+            water.transform.translation = Fp3([0.0, 0.885, 0.0]);
+            water.transform.scale = Fp3([8.0 / extent, 1.0, 8.0 / extent]);
+            let mut basin = Generator::default_cuboid();
+            let GeneratorKind::Cuboid { size, .. } = &mut basin.kind else {
+                panic!("the default cuboid is a cuboid");
+            };
+            *size = Fp3([10.0, 2.0, 10.0]);
+            basin.children.push(water);
+            let mut record = test_record(0);
+            record.generators.insert("basin".to_string(), basin);
+            let quarter = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+            record.placements = [[100.0, 0.0, 100.0], [-100.0, 50.0, -100.0]]
+                .into_iter()
+                .map(|at| Placement::Absolute {
+                    generator_ref: "basin".to_string(),
+                    transform: TransformData {
+                        translation: Fp3(at),
+                        rotation: Fp4(quarter.to_array()),
+                        scale: Fp3([1.0, 1.0, 1.0]),
+                    },
+                    snap_to_terrain: false,
+                    avoid_water: false,
+                    avoid_water_clearance: Fp(0.0),
+                    seed: None,
+                    params: Default::default(),
+                })
+                .collect();
+            let mut app = compile_app(record);
+            settle(&mut app);
+            app.world().resource::<WaterSurfaces>().clone()
+        };
+        let surfaces = compiled(None);
+        assert_eq!(surfaces.planes.len(), 2);
+        let level = |p: Vec3| surfaces.surface_at(p).map(|(_, y)| y);
+        let near = |got: Option<f32>, want: f32| got.is_some_and(|y| (y - want).abs() < 1e-4);
+
+        assert!(
+            near(level(Vec3::new(100.0, 0.5, 100.0)), 0.885),
+            "the basin"
+        );
+        assert!(
+            near(level(Vec3::new(103.5, 0.5, 96.5)), 0.885),
+            "its corner"
+        );
+        assert_eq!(level(Vec3::new(105.0, 0.5, 100.0)), None, "past its side");
+        for y in [-1.0, 0.885, 50.885] {
+            assert_eq!(level(Vec3::new(0.0, y, 0.0)), None, "the origin at {y}");
+        }
+
+        let raised = Vec3::new(-100.0, 50.0, -100.0);
+        let bottoms = |surfaces: &WaterSurfaces| -> Vec<f32> {
+            surfaces
+                .planes
+                .iter()
+                .map(|plane| {
+                    plane.world_from_local.translation.y
+                        - plane.depth.expect("a built piece's water has a depth")
+                })
+                .collect()
+        };
+        let agree = |got: Vec<f32>, want: [f32; 2]| {
+            got.iter()
+                .zip(want)
+                .all(|(got, want)| (got - want).abs() < 1e-4)
+        };
+        assert!(
+            agree(bottoms(&surfaces), [-1.0, 49.0]),
+            "each basin's floor: {:?}",
+            bottoms(&surfaces)
+        );
+        assert!(
+            near(level(raised + Vec3::Y * 0.2), 50.885),
+            "standing in it"
+        );
+        assert_eq!(level(raised.with_y(0.4)), None, "on the ground under it");
+        let wading = surfaces.query(raised + Vec3::Y * 0.2).expect("in it");
+        assert!((wading.depth - 0.685).abs() < 1e-4);
+        assert!(surfaces.query(raised.with_y(0.4)).is_none());
+        assert!(surfaces.query_signed(raised.with_y(0.4)).is_none());
+
+        // A depth of half a metre: its bottom is that under its level.
+        let shallow = compiled(Some(0.5));
+        assert!(
+            agree(bottoms(&shallow), [0.385, 50.385]),
+            "{:?}",
+            bottoms(&shallow)
+        );
+        assert_eq!(shallow.surface_at(raised + Vec3::Y * 0.2), None, "under it");
+    }
+
+    /// An 8 m square of water `lift` over its parent's centre, the plane
+    /// drawn the world across scaled down to it (#1949's tests).
+    fn basin_water(lift: f32) -> Generator {
+        let extent =
+            (crate::config::terrain::GRID_SIZE - 1) as f32 * crate::config::terrain::CELL_SCALE;
+        let mut water = Generator::from_kind(GeneratorKind::Water {
+            surface: Default::default(),
+        });
+        water.transform.translation = Fp3([0.0, lift, 0.0]);
+        water.transform.scale = Fp3([8.0 / extent, 1.0, 8.0 / extent]);
+        water
+    }
+
+    /// A box `size` across holding [`basin_water`] `lift` over its centre.
+    fn basin(size: [f32; 3], lift: f32) -> Generator {
+        let mut basin = Generator::default_cuboid();
+        let GeneratorKind::Cuboid { size: s, .. } = &mut basin.kind else {
+            panic!("the default cuboid is a cuboid");
+        };
+        *s = Fp3(size);
+        basin.children.push(basin_water(lift));
+        basin
+    }
+
+    /// #1949: each copy of a Grid placement registers its water at its own
+    /// cell - two across, two stacked 5 m apart - in the grid's frame at
+    /// (100, 0, 100), and each layer's water is no water to the layer under
+    /// it, the basin's floor its bottom.
+    #[test]
+    fn a_grids_copies_each_register_their_water_at_their_own_cell() {
+        let mut record = test_record(0);
+        record
+            .generators
+            .insert("basin".to_string(), basin([10.0, 1.0, 10.0], 0.885));
+        record.placements = vec![Placement::Grid {
+            generator_ref: "basin".to_string(),
+            transform: TransformData {
+                translation: Fp3([100.0, 0.0, 100.0]),
+                ..Default::default()
+            },
+            counts: [2, 2, 1],
+            gaps: Fp3([20.0, 5.0, 0.0]),
+            snap_to_terrain: false,
+            random_yaw: false,
+        }];
+        let mut app = compile_app(record);
+        settle(&mut app);
+        let surfaces = app.world().resource::<WaterSurfaces>().clone();
+        assert_eq!(surfaces.planes.len(), 4, "a plane a copy");
+        let level = |p: Vec3| surfaces.surface_at(p).map(|(_, y)| y);
+        let near = |got: Option<f32>, want: f32| got.is_some_and(|y| (y - want).abs() < 1e-4);
+        for x in [90.0, 110.0] {
+            for cell_y in [-2.5, 2.5] {
+                let water = cell_y + 0.885;
+                assert!(
+                    near(level(Vec3::new(x, water - 0.3, 100.0)), water),
+                    "the copy at ({x}, {cell_y}): {:?}",
+                    level(Vec3::new(x, water - 0.3, 100.0))
+                );
+            }
+            // Under the upper copy's floor, over the lower copy's water.
+            assert!(near(level(Vec3::new(x, 1.5, 100.0)), -1.615), "between");
+        }
+        assert_eq!(
+            level(Vec3::new(100.0, 0.0, 100.0)),
+            None,
+            "between the columns"
+        );
+        assert_eq!(level(Vec3::new(0.0, 0.5, 0.0)), None, "the origin");
+    }
+
+    /// #1949: water three nodes down - a box placed at (50, 0, -50), a box
+    /// 10 m over it turned a quarter and stretched twice along X and Z, a
+    /// box 3 m along that one's X, and the water - is registered where the
+    /// whole chain puts it: (50, 10.885, -56), 16 m square.
+    #[test]
+    fn water_three_nodes_down_registers_where_the_chain_puts_it() {
+        let mut grandchild = basin([2.0, 1.0, 2.0], 0.885);
+        grandchild.transform.translation = Fp3([3.0, 0.0, 0.0]);
+        let mut child = Generator::default_cuboid();
+        child.transform = TransformData {
+            translation: Fp3([0.0, 10.0, 0.0]),
+            rotation: Fp4(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2).to_array()),
+            scale: Fp3([2.0, 1.0, 2.0]),
+        };
+        child.children.push(grandchild);
+        let mut root = Generator::default_cuboid();
+        root.children.push(child);
+        let mut record = test_record(0);
+        record.generators.insert("tower".to_string(), root);
+        record.placements = vec![Placement::Absolute {
+            generator_ref: "tower".to_string(),
+            transform: TransformData {
+                translation: Fp3([50.0, 0.0, -50.0]),
+                ..Default::default()
+            },
+            snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+            seed: None,
+            params: Default::default(),
+        }];
+        let mut app = compile_app(record);
+        settle(&mut app);
+        let surfaces = app.world().resource::<WaterSurfaces>().clone();
+        assert_eq!(surfaces.planes.len(), 1);
+        let level = |x: f32, z: f32| surfaces.surface_at(Vec3::new(x, 10.7, z)).map(|(_, y)| y);
+        let near = |got: Option<f32>, want: f32| got.is_some_and(|y| (y - want).abs() < 1e-4);
+        assert!(near(level(50.0, -56.0), 10.885), "{:?}", level(50.0, -56.0));
+        assert!(near(level(57.5, -63.5), 10.885), "its corner");
+        assert_eq!(level(59.0, -56.0), None, "past its side");
+        assert_eq!(level(0.0, 0.0), None, "the origin");
+        assert_eq!(level(50.0, -53.0), level(50.0, -59.0), "centred");
     }
 
     /// #1399: the editor reads a snapped Absolute anchor exactly where this

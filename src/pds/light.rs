@@ -185,7 +185,8 @@ fn is_default_outer(outer: &Fp) -> bool {
 }
 
 /// A flicker's fine shimmer moves this many times quicker than its broad
-/// waver...
+/// waver, unless it moves on a rate of its own
+/// ([`LightFlicker::Flicker`]'s `shimmer_rate`)...
 pub const FLICKER_FINE_RATE: f32 = 2.7;
 
 /// ...and carries this share of its dip.
@@ -196,7 +197,7 @@ pub const FLICKER_FINE_SHARE: f32 = 1.0 / 3.0;
 /// off the shared clock and the light's own place in the record, so every
 /// peer sees one light do the same thing; a viewer's Effects setting calms
 /// it at the drawing (gentler at Reduced, steady at Off). A light that dips
-/// deep enough to flash may not flash faster than lightning does, at every
+/// deep enough to flash may flash at most three times a second, at every
 /// setting (`sanitize::light::max_flicker_rate_hz`).
 ///
 /// An open union: a mode from a newer engine decodes as [`Self::Unknown`],
@@ -206,14 +207,25 @@ pub const FLICKER_FINE_SHARE: f32 = 1.0 / 3.0;
 pub enum LightFlicker {
     /// An uneven waver, like a flame's or a failing tube's: a smooth random
     /// walk of the brightness, about `rate` changes a second, with a finer
-    /// shimmer over it ([`FLICKER_FINE_RATE`] times quicker, a
-    /// [`FLICKER_FINE_SHARE`] of the dip).
+    /// shimmer over it (a [`FLICKER_FINE_SHARE`] of the dip).
+    ///
+    /// The shimmer moves `shimmer_rate` times a second where it has one
+    /// (#1950) - a fire's quick flutter over its slow swell - and else
+    /// [`FLICKER_FINE_RATE`] times quicker than the waver. Only a shimmer
+    /// too shallow to flash may have one: the sanitiser drops it from a
+    /// flicker deep enough that its shimmer flashes, which moves coupled.
+    /// Left off the wire unset, so a flicker saved before it keeps its
+    /// bytes; a client built before it ignores the key, draws the shimmer
+    /// coupled, holds `rate` by its own flash cap, and drops the key if it
+    /// saves the node.
     #[serde(rename = "network.symbios.light.flicker")]
     Flicker {
         #[serde(default = "default_flicker_amount")]
         amount: Fp,
         #[serde(default = "default_flicker_rate")]
         rate: Fp,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shimmer_rate: Option<Fp>,
     },
     /// An even breathing, dimming and brightening `rate` times a second: a
     /// beacon, a warning lamp, a sign.
@@ -240,6 +252,7 @@ impl LightFlicker {
             "Flicker" => Self::Flicker {
                 amount: default_flicker_amount(),
                 rate: default_flicker_rate(),
+                shimmer_rate: None,
             },
             "Pulse" => Self::Pulse {
                 amount: default_pulse_amount(),
@@ -389,6 +402,57 @@ mod tests {
         assert!(serde_json::to_string(&light).is_err());
     }
 
+    /// A flicker's own shimmer rate (#1950) is left off the wire unset, so
+    /// a flicker saved before it reads back as it was and saves the same
+    /// bytes; set, it round-trips. A client built before it - its flicker
+    /// without the field - decodes the new record, the key ignored, and
+    /// reads the same depth and rate (its own sanitiser then holds them).
+    #[test]
+    fn a_shimmer_rate_is_written_only_when_set_and_an_old_client_ignores_it() {
+        let old = r#"{"$type":"network.symbios.light.flicker","amount":2900,"rate":20000}"#;
+        let back: LightFlicker = serde_json::from_str(old).expect("decodes");
+        assert_eq!(
+            back,
+            LightFlicker::Flicker {
+                amount: Fp(0.29),
+                rate: Fp(2.0),
+                shimmer_rate: None,
+            }
+        );
+        assert_eq!(wire(&back), old, "an old flicker keeps its bytes");
+
+        let own = LightFlicker::Flicker {
+            amount: Fp(0.29),
+            rate: Fp(3.0),
+            shimmer_rate: Some(Fp(8.0)),
+        };
+        let text = wire(&own);
+        assert_eq!(
+            text,
+            r#"{"$type":"network.symbios.light.flicker","amount":2900,"rate":30000,"shimmer_rate":80000}"#
+        );
+        let back: LightFlicker = serde_json::from_str(&text).expect("decodes");
+        assert_eq!(back, own);
+
+        /// The flicker as a client before #1950 declares it.
+        #[derive(Deserialize, Debug, PartialEq)]
+        #[serde(tag = "$type")]
+        enum OldFlicker {
+            #[serde(rename = "network.symbios.light.flicker")]
+            Flicker { amount: Fp, rate: Fp },
+            #[serde(other)]
+            Unknown,
+        }
+        let read: OldFlicker = serde_json::from_str(&text).expect("an old client decodes it");
+        assert_eq!(
+            read,
+            OldFlicker::Flicker {
+                amount: Fp(0.29),
+                rate: Fp(3.0),
+            }
+        );
+    }
+
     #[test]
     fn a_light_shines_with_a_known_shape_and_some_brightness() {
         assert!(LightSource::default().shines());
@@ -400,8 +464,10 @@ mod tests {
         assert!(!dark.shines());
     }
 
-    /// What a light costs the record's budget: 10 bytes fresh, and 325 with
-    /// every field set and each number as long as its bounds allow (#1921).
+    /// What a light costs the record's budget: 10 bytes fresh, and 347 with
+    /// every field set and each number as long as its bounds allow (#1921) -
+    /// 22 of them a flicker's own shimmer rate (#1950), which a flicker
+    /// without one does not write.
     #[test]
     fn a_light_costs_the_record_little() {
         assert_eq!(r#""light":{}"#.len(), 10);
@@ -420,9 +486,10 @@ mod tests {
             flicker: Some(LightFlicker::Flicker {
                 amount: Fp(-0.9999),
                 rate: Fp(-7.9999),
+                shimmer_rate: Some(Fp(-7.9999)),
             }),
         };
         let bytes = format!(r#""light":{}"#, wire(&full)).len();
-        assert!(bytes <= 335, "{bytes}: {}", wire(&full));
+        assert!(bytes <= 357, "{bytes}: {}", wire(&full));
     }
 }

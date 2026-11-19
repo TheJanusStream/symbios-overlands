@@ -82,6 +82,13 @@ impl Sanitize for WaterSurface {
             limits::MAX_WATER_WAKE_DECAY_RADIUS,
             4.0,
         ));
+        // A depth that is no number is left unset - the holding piece's
+        // floor - rather than guessed at (#1949).
+        self.depth = self.depth.filter(|depth| depth.0.is_finite()).map(|depth| {
+            Fp(depth
+                .0
+                .clamp(limits::MIN_WATER_DEPTH, limits::MAX_WATER_DEPTH))
+        });
     }
 }
 
@@ -92,4 +99,69 @@ impl Sanitize for WaterSurface {
 /// every variant.
 pub(super) fn sanitize_water(surface: &mut WaterSurface) {
     surface.sanitize();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #1949: an unset depth is left off the record, so every water node
+    /// written before the field existed keeps its bytes; a set one goes
+    /// over the wire as the integer it is written as, and back.
+    #[test]
+    fn depth_is_elided_unset_and_round_trips_set() {
+        let unset = serde_json::to_string(&WaterSurface::default()).expect("writes");
+        assert_eq!(unset, "{}");
+        let set = WaterSurface {
+            depth: Some(Fp(2.5)),
+            ..WaterSurface::default()
+        };
+        let json = serde_json::to_string(&set).expect("writes");
+        assert_eq!(json, r#"{"depth":25000}"#);
+        let back: WaterSurface = serde_json::from_str(&json).expect("reads");
+        assert_eq!(back, set);
+        let old: WaterSurface = serde_json::from_str("{}").expect("reads");
+        assert_eq!(old.depth, None, "a record from before reads as unset");
+
+        // A whole water node, as the record holds it.
+        let node = |depth: Option<f32>| {
+            let mut node = crate::pds::Generator::from_kind(crate::pds::GeneratorKind::Water {
+                surface: WaterSurface {
+                    depth: depth.map(Fp),
+                    ..WaterSurface::default()
+                },
+            });
+            node.transform.translation = crate::pds::Fp3([0.0, 0.885, 0.0]);
+            serde_json::to_string(&node).expect("writes")
+        };
+        assert_eq!(
+            node(None),
+            r#"{"$type":"network.symbios.gen.water","surface":{},"transform":{"translation":[0,8850,0]}}"#
+        );
+        assert_eq!(
+            node(Some(2.5)),
+            r#"{"$type":"network.symbios.gen.water","surface":{"depth":25000},"transform":{"translation":[0,8850,0]}}"#
+        );
+    }
+
+    /// #1949: the sanitiser holds a depth to its range and leaves a depth
+    /// that is no number unset.
+    #[test]
+    fn the_sanitiser_clamps_depth() {
+        let sanitised = |depth: Option<f32>| {
+            let mut surface = WaterSurface {
+                depth: depth.map(Fp),
+                ..WaterSurface::default()
+            };
+            surface.sanitize();
+            surface.depth.map(|depth| depth.0)
+        };
+        assert_eq!(sanitised(None), None);
+        assert_eq!(sanitised(Some(2.5)), Some(2.5));
+        assert_eq!(sanitised(Some(0.0)), Some(limits::MIN_WATER_DEPTH));
+        assert_eq!(sanitised(Some(-4.0)), Some(limits::MIN_WATER_DEPTH));
+        assert_eq!(sanitised(Some(1.0e9)), Some(limits::MAX_WATER_DEPTH));
+        assert_eq!(sanitised(Some(f32::NAN)), None);
+        assert_eq!(sanitised(Some(f32::INFINITY)), None);
+    }
 }

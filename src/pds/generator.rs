@@ -92,6 +92,50 @@ pub struct WaterSurface {
     /// reach further from the avatar; smaller values keep effects
     /// tightly localised.
     pub wake_decay_radius: Fp,
+    /// How deep the water is (#1949): metres below its surface to its
+    /// bottom, under which nothing is in it - a pool on a roof is no water
+    /// to the hall below. Measured straight down from the surface over each
+    /// point, so a tilted channel's bottom follows it down its slope.
+    ///
+    /// **World metres**: a scaled copy of the piece - a scattered one, say -
+    /// does not scale it, while the floor the unset rule reads does scale
+    /// with its holder. `None` (unset, the default, left off the record) is
+    /// the floor of the piece that holds it - the bottom of its parent
+    /// node's box, its walls holding it - where that lies under the level,
+    /// and never deeper than [`WaterSurface::FALLBACK_DEPTH`]; with no box
+    /// to read, or one whose bottom does not reach under the water, the
+    /// fallback itself. So parent the water to the slab under it - its
+    /// basin's floor - or set this, which a pool deeper than the fallback
+    /// needs. Read only for water inside a built piece: the world's own
+    /// water layers - the sea and its lakes - have the ground for a bottom
+    /// and ignore it.
+    pub depth: Option<Fp>,
+}
+
+impl WaterSurface {
+    /// The deepest unset water is (m, #1949), and its depth where its holder
+    /// gives no floor to read. Two bodies set it, from either side:
+    ///
+    /// - **deep enough that a floating swimmer's feet stay in.** A swimmer
+    ///   at the surface floats with `humanoid::SWIM_FLOAT` (0.8) of its
+    ///   height under water (`WaterColumn`): 1.44 m on the default 1.8 m
+    ///   person; 1.45 m on the default horse, whose back stands 1.81 m, the
+    ///   tallest of the game's default bodies (the dog's stands 0.71 m, the
+    ///   cat's 0.51 m, the winged families' 0.21 to 0.67 m) - 1.75 m with a
+    ///   0.3 m margin;
+    /// - **shallow enough that a body standing in the storey under a raised
+    ///   pool is out**: a 2.2 m room, a 0.1 m slab and a 0.25 m pool put the
+    ///   floor 2.55 m under the pool's surface, and a body's feet there under
+    ///   its bottom.
+    ///
+    /// The avatar envelopes reach further: a person rolled to their tallest
+    /// stands 3.1 m (2.48 m afloat), a beast rolled to its tallest 5.2 to
+    /// 5.4 m at the back, the largest bird 2.7 m. Any body over 2.75 m
+    /// floats past the margin, and one over 3.125 m with its feet under the
+    /// bottom of unset water its holder gives no floor - no single fallback
+    /// serves both it and the storey under a pool, so a pool for such a
+    /// body sets its `depth`.
+    pub const FALLBACK_DEPTH: f32 = 2.5;
 }
 
 impl Default for WaterSurface {
@@ -118,6 +162,9 @@ impl Default for WaterSurface {
             wake_strength: Fp(0.0),
             wake_ripple_wavelength: Fp(1.5),
             wake_decay_radius: Fp(4.0),
+            // Unset: the holding piece's floor (#1949), so every record
+            // written before the field existed keeps its bytes.
+            depth: None,
         }
     }
 }
@@ -140,6 +187,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(WaterSurface {
     wake_strength,
     wake_ripple_wavelength,
     wake_decay_radius,
+    depth,
 });
 
 /// Authored parameters for a [`GeneratorKind::RoadNetwork`] - a tensor-field

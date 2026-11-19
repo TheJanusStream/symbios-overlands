@@ -675,6 +675,13 @@ impl WaterAt for Option<f32> {
     }
 }
 
+/// The spawned planes' level at a point, up a body's bank
+/// ([`crate::water::WaterSurfaces::level_near`]). Asked with no height, it
+/// ignores a built piece's pool's depth (#1949) and answers its level over
+/// the floors under it as well: right for the bodies, which have none, and
+/// not for a raised pool. Nothing in the game calls it - a scatter reads
+/// [`crate::water::ScatterWater`], and a body asks
+/// [`crate::water::WaterSurfaces::surface_at`] at its own height.
 impl WaterAt for crate::water::WaterSurfaces {
     fn water_at(&self, x: f32, z: f32) -> Option<f32> {
         self.level_near(Vec2::new(x, z)).map(|(_, y)| y)

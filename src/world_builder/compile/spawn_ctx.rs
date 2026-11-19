@@ -332,6 +332,26 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// its seed and values in place of any placement's. `None` outside a
     /// template.
     pub(crate) shape_variant: Option<&'a crate::pds::InstanceVariant>,
+    /// The world's frame of the node being spawned (#1949): the placement
+    /// anchor's pose times every node's from the root down, kept by
+    /// [`spawn_generator`](super::dispatch::spawn_generator) on the way down
+    /// and back up. A water plane is registered in it, where it is drawn;
+    /// the drawn plane is hung under its parent and needs none of it.
+    /// `None` outside a room placement - an avatar's tree, a template, an
+    /// item preview, whose frame moves with what carries it: a water plane
+    /// there is drawn and not registered, as one registered in its parent's
+    /// frame would be phantom water round the world's origin.
+    ///
+    /// Composed as [`Transform`]s, as the registry keeps them: exact for
+    /// every chain but one that turns a child inside a parent stretched
+    /// unevenly, whose shear no `Transform` holds.
+    pub(crate) frame: Option<Transform>,
+    /// The floor of the piece holding the Water node being spawned
+    /// (#1949): the world height of the bottom of its parent node's box,
+    /// where the parent has one ([`crate::pds::ruin::kind_box`]) and the
+    /// [`Self::frame`] is known. Set by the dispatch for a Water child
+    /// alone, and cleared after it.
+    pub(crate) water_floor: Option<f32>,
 }
 
 impl<'a> SpawnCtx<'a, '_, '_, '_, '_> {

@@ -1,8 +1,10 @@
 //! The Light section of the generator detail panel (#1922): whether a node
 //! gives off light, and every property its [`LightSource`] holds - point or
 //! spot, a spot's aim and cone, colour, brightness, reach, size, offset,
-//! dusk to dawn, and a flicker or pulse. Like the Spin section beside it,
-//! it serves a world's items, a body's visuals and a worn prop's parts.
+//! dusk to dawn, and a flicker or pulse (a flicker's shimmer on a rate of
+//! its own while it is too shallow to flash, #1950). Like the Spin section
+//! beside it, it serves a world's items, a body's visuals and a worn prop's
+//! parts.
 //!
 //! Every edit is made on a copy and held through the light's own sanitiser
 //! before it is written, so what the panel writes is already inside the
@@ -30,9 +32,9 @@
 
 use bevy_egui::egui;
 
-use crate::pds::light::{LightFlicker, LightShape, LightSource};
+use crate::pds::light::{FLICKER_FINE_RATE, LightFlicker, LightShape, LightSource};
 use crate::pds::sanitize::Sanitize as _;
-use crate::pds::sanitize::light::{max_flicker_rate_hz, max_light_brightness};
+use crate::pds::sanitize::light::{max_flicker_rate_hz, max_light_brightness, max_shimmer_rate_hz};
 use crate::pds::sanitize::limits;
 use crate::pds::{Fp, Fp3, GeneratorKind};
 
@@ -401,7 +403,7 @@ fn draw_motion(ui: &mut egui::Ui, light: &mut LightSource, changed: &mut bool) {
     let pulse = matches!(light.flicker, Some(LightFlicker::Pulse { .. }));
     match light.flicker.as_mut() {
         None => {}
-        Some(LightFlicker::Flicker { amount, rate } | LightFlicker::Pulse { amount, rate }) => {
+        Some(LightFlicker::Flicker { amount, rate, .. } | LightFlicker::Pulse { amount, rate }) => {
             slider(
                 ui,
                 "Depth",
@@ -409,10 +411,14 @@ fn draw_motion(ui: &mut egui::Ui, light: &mut LightSource, changed: &mut bool) {
                 0.0..=1.0,
                 "",
                 changed,
-                "The share of its light it dips by at most: 1 goes dark.",
+                "The share of its light it dips by at most: 1 goes dark. Deeper \
+                 than a tenth it flashes, and may flash at most three times a \
+                 second; a flicker's shimmer, a third of its dip, flashes deeper \
+                 than 0.3.",
             );
             // The cap for the depth as it stands after this frame's drag: a
-            // deeper light flashes, and may flash no faster than lightning.
+            // deeper light flashes, and may flash at most three times a
+            // second.
             let cap = max_flicker_rate_hz(pulse, amount.0);
             let mut rate_changed = false;
             slider_log(
@@ -422,14 +428,22 @@ fn draw_motion(ui: &mut egui::Ui, light: &mut LightSource, changed: &mut bool) {
                 limits::MIN_LIGHT_FLICKER_RATE_HZ..=cap,
                 " Hz",
                 &mut rate_changed,
-                "How many times a second it moves.",
+                if pulse {
+                    "How many times a second it breathes: up to 8, and at most 3 \
+                     once it dips by more than a tenth, which flashes."
+                } else {
+                    "How many times a second its broad waver moves: up to 8, at \
+                     most 3 once the waver (two thirds of the dip) passes a tenth, \
+                     which flashes, and at most 1.1111 once the shimmer does too, \
+                     moving 2.7 times quicker."
+                },
             );
             *changed |= rate_changed;
             let note = if cap < limits::MAX_LIGHT_FLICKER_RATE_HZ {
                 format!(
                     "At most {cap} Hz at this depth: a light that dips by more \
-                     than a tenth flashes, and may flash no faster than twice a \
-                     second, as lightning does."
+                     than a tenth flashes, and may flash at most three times a \
+                     second."
                 )
             } else {
                 format!("At most {cap} Hz at this depth.")
@@ -439,6 +453,73 @@ fn draw_motion(ui: &mut egui::Ui, light: &mut LightSource, changed: &mut bool) {
         Some(LightFlicker::Unknown) => {
             unrecognised_value_line(ui, "light motion", Some("it shines steady here"));
         }
+    }
+    if let Some(LightFlicker::Flicker {
+        amount,
+        rate,
+        shimmer_rate,
+    }) = light.flicker.as_mut()
+    {
+        draw_shimmer(ui, *amount, *rate, shimmer_rate, changed);
+    }
+}
+
+/// A flicker's shimmer on a rate of its own or coupled to its waver
+/// (#1950): its own only while it is too shallow to flash.
+fn draw_shimmer(
+    ui: &mut egui::Ui,
+    amount: Fp,
+    rate: Fp,
+    shimmer_rate: &mut Option<Fp>,
+    changed: &mut bool,
+) {
+    // Why the box is greyed past 0.3: painted under it, and its hover there,
+    // as egui shows a greyed control's hover only through
+    // `on_disabled_hover_text`.
+    const NO_OWN_RATE: &str = "Deeper than 0.3 the shimmer flashes too, so it moves 2.7 times \
+                               the Rate, held with it: no own shimmer rate at this depth.";
+    let fastest = max_shimmer_rate_hz(amount.0);
+    let coupled = rate.0 * FLICKER_FINE_RATE;
+    let mut own = shimmer_rate.is_some();
+    if ui
+        .add_enabled(
+            fastest.is_some(),
+            egui::Checkbox::new(&mut own, "Own shimmer rate"),
+        )
+        .on_hover_text(
+            "Moves the shimmer - a third of the dip, over the broad waver - on \
+             a rate of its own, up to 8 a second, rather than 2.7 times the \
+             Rate: a fire's quick flutter over a slow swell. Only a shimmer \
+             too shallow to flash may (a depth of 0.3 or less). Older \
+             versions of Overlands move it 2.7 times the Rate.",
+        )
+        .on_disabled_hover_text(NO_OWN_RATE)
+        .changed()
+    {
+        *shimmer_rate = own.then(|| {
+            Fp(coupled.clamp(
+                limits::MIN_LIGHT_FLICKER_RATE_HZ,
+                fastest.unwrap_or(limits::MAX_LIGHT_FLICKER_RATE_HZ),
+            ))
+        });
+        *changed = true;
+    }
+    match (fastest, shimmer_rate.as_mut()) {
+        (Some(top), Some(shimmer)) => slider_log(
+            ui,
+            "Shimmer",
+            shimmer,
+            limits::MIN_LIGHT_FLICKER_RATE_HZ..=top,
+            " Hz",
+            changed,
+            "How many times a second the shimmer moves: up to 8, whatever the \
+             waver's Rate - it never dips past a tenth, so it never flashes.",
+        ),
+        (Some(_), None) => weak(
+            ui,
+            &format!("The shimmer moves 2.7 times the Rate: {coupled:.2} Hz."),
+        ),
+        (None, _) => weak(ui, NO_OWN_RATE),
     }
 }
 
@@ -533,26 +614,48 @@ impl Asked {
                     .cloned()
                     .unwrap_or_else(|| now.clone())
             });
-        } else if let (
-            Some(
-                LightFlicker::Flicker {
-                    amount: m0,
-                    rate: r0,
-                }
-                | LightFlicker::Pulse {
-                    amount: m0,
-                    rate: r0,
-                },
-            ),
-            Some(LightFlicker::Flicker { amount, rate } | LightFlicker::Pulse { amount, rate }),
-            Some(
-                LightFlicker::Flicker { amount: m, rate: r }
-                | LightFlicker::Pulse { amount: m, rate: r },
-            ),
-        ) = (&before.flicker, &edit.flicker, &mut asked.flicker)
-        {
-            moved(m, *m0, *amount);
-            moved(r, *r0, *rate);
+        } else {
+            if let (
+                Some(
+                    LightFlicker::Flicker {
+                        amount: m0,
+                        rate: r0,
+                        ..
+                    }
+                    | LightFlicker::Pulse {
+                        amount: m0,
+                        rate: r0,
+                    },
+                ),
+                Some(
+                    LightFlicker::Flicker { amount, rate, .. }
+                    | LightFlicker::Pulse { amount, rate },
+                ),
+                Some(
+                    LightFlicker::Flicker {
+                        amount: m, rate: r, ..
+                    }
+                    | LightFlicker::Pulse { amount: m, rate: r },
+                ),
+            ) = (&before.flicker, &edit.flicker, &mut asked.flicker)
+            {
+                moved(m, *m0, *amount);
+                moved(r, *r0, *rate);
+            }
+            // A shimmer rate the sanitiser dropped for a depth past 0.3
+            // comes back when the depth does.
+            if let (
+                Some(LightFlicker::Flicker {
+                    shimmer_rate: s0, ..
+                }),
+                Some(LightFlicker::Flicker { shimmer_rate, .. }),
+                Some(LightFlicker::Flicker {
+                    shimmer_rate: s, ..
+                }),
+            ) = (&before.flicker, &edit.flicker, &mut asked.flicker)
+            {
+                moved(s, *s0, *shimmer_rate);
+            }
         }
     }
 }
@@ -911,7 +1014,7 @@ mod tests {
         let drawn = pass(&ctx, &mut light, Vec::new());
         assert_eq!(top(&drawn), limits::MAX_LIGHT_FLASHES_HZ, "a 0.6 pulse");
         assert!(
-            drawn.painted("At most 2 Hz at this depth"),
+            drawn.painted("At most 3 Hz at this depth"),
             "{:#?}",
             drawn.shown
         );
@@ -953,6 +1056,56 @@ mod tests {
         assert_eq!(sanitized(&held), held);
     }
 
+    /// A flicker's shimmer may take a rate of its own (#1950): ticked, it
+    /// starts at the coupled 2.7 times the Rate and goes up to 8 Hz beside
+    /// a waver held to three a second; a depth past 0.3, where the shimmer
+    /// flashes, drops it - the box disabled, the reason painted - and a
+    /// depth brought back gives it back; unticked, it is coupled again.
+    #[test]
+    fn a_flickers_shimmer_takes_its_own_rate_while_it_is_shallow() {
+        let ctx = context(false);
+        let mut light = Some(LightSource {
+            dusk_to_dawn: false,
+            flicker: LightFlicker::fresh("Flicker"),
+            ..LightSource::default()
+        });
+        let shimmer = |light: &Option<LightSource>| match held(light).flicker {
+            Some(LightFlicker::Flicker { shimmer_rate, .. }) => shimmer_rate.map(|s| s.0),
+            ref other => panic!("no flicker: {other:?}"),
+        };
+        let drawn = pass(&ctx, &mut light, Vec::new());
+        assert!(drawn.painted("The shimmer moves 2.7 times the Rate"));
+        edit(&ctx, &mut light, "Depth", 0.3);
+        edit(&ctx, &mut light, "Rate", 1.0);
+        let own = pass(&ctx, &mut light, Vec::new())
+            .named("Own shimmer rate")
+            .id;
+        assert!(pass(&ctx, &mut light, click(own)).dirty);
+        assert_eq!(shimmer(&light), Some(2.7), "starts where it was");
+        assert!(edit(&ctx, &mut light, "Shimmer", 8.0));
+        assert!(!edit(&ctx, &mut light, "Shimmer", 12.0), "at most 8 Hz");
+        edit(&ctx, &mut light, "Rate", 5.0);
+        assert_eq!(motion(&light), (0.3, limits::MAX_LIGHT_FLASHES_HZ));
+        assert_eq!(shimmer(&light), Some(8.0), "the flutter over the waver");
+        let held_light = held(&light).clone();
+        assert_eq!(sanitized(&held_light), held_light);
+
+        edit(&ctx, &mut light, "Depth", 0.5);
+        assert_eq!(shimmer(&light), None, "a shimmer that flashes is coupled");
+        let deep = pass(&ctx, &mut light, Vec::new());
+        assert!(deep.painted("Deeper than 0.3 the shimmer flashes"));
+        assert!(!pass(&ctx, &mut light, click(deep.named("Own shimmer rate").id)).dirty);
+        assert_eq!(shimmer(&light), None, "the box is disabled");
+
+        edit(&ctx, &mut light, "Depth", 0.3);
+        assert_eq!(shimmer(&light), Some(8.0), "the shimmer rate asked");
+        let own = pass(&ctx, &mut light, Vec::new())
+            .named("Own shimmer rate")
+            .id;
+        assert!(pass(&ctx, &mut light, click(own)).dirty);
+        assert_eq!(shimmer(&light), None, "unticked, coupled again");
+    }
+
     /// Drawn with no input, the section writes nothing and marks nothing
     /// edited - every folded section and popup open, the colour picker's
     /// round trip through its own colour space among them - for a point,
@@ -975,6 +1128,14 @@ mod tests {
                     outer: Fp(33.3333),
                 },
                 flicker: LightFlicker::fresh("Pulse"),
+                ..LightSource::default()
+            },
+            LightSource {
+                flicker: Some(LightFlicker::Flicker {
+                    amount: Fp(0.3),
+                    rate: Fp(3.0),
+                    shimmer_rate: Some(Fp(8.0)),
+                }),
                 ..LightSource::default()
             },
             LightSource {
@@ -1104,9 +1265,9 @@ mod tests {
 
     fn motion(light: &Option<LightSource>) -> (f32, f32) {
         match held(light).flicker {
-            Some(LightFlicker::Flicker { amount, rate } | LightFlicker::Pulse { amount, rate }) => {
-                (amount.0, rate.0)
-            }
+            Some(
+                LightFlicker::Flicker { amount, rate, .. } | LightFlicker::Pulse { amount, rate },
+            ) => (amount.0, rate.0),
             ref other => panic!("no flicker: {other:?}"),
         }
     }

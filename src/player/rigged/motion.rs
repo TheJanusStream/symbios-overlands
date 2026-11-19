@@ -464,9 +464,12 @@ pub(in crate::player) fn fill_rigged_drive(
         // with the capsule's top out of the water. The crown is read off LAST
         // frame's pose, since the driver poses after this; the lift is eased,
         // so a stroke cannot bob it.
+        // Asked at its feet, as the controller asks (#1949): a pool whose
+        // bottom is over them is no water to it.
+        let feet = column.map_or(position.y - half_height, |column| position.y - column.drop);
         let surface = water
             .as_ref()
-            .and_then(|water| water.surface_at(Vec2::new(position.x, position.z)))
+            .and_then(|water| water.surface_at(Vec3::new(position.x, feet, position.z)))
             .map(|(_, surface_y)| surface_y);
         // A column's top, for a body whose top is not its capsule's: the
         // controller's own afloat.

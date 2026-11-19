@@ -209,6 +209,11 @@ pub struct WaterSurfaces {
 /// (#1724) - carries its `cells` too: the plane is water only over them, so
 /// a lake on a plateau is no water over the valley below it, which its
 /// rectangle reaches (#1726).
+///
+/// Water inside a built piece carries a `depth` (#1949): it is water only
+/// that far under its surface, so a pool on a roof is no water to the hall
+/// under it, which its rectangle covers. The sea and the lakes have none -
+/// the ground is their bottom.
 #[derive(Debug, Clone)]
 pub struct WaterPlane {
     pub world_from_local: Transform,
@@ -223,6 +228,15 @@ pub struct WaterPlane {
     /// Where a body's plane is water: its cells. `None` for the sea and for
     /// water in built pieces, which are water across their rectangle.
     pub cells: Option<std::sync::Arc<bodies::BodyCells>>,
+    /// How far under its surface the plane holds water (world metres,
+    /// #1949), measured straight down from the surface AT THE POINT ASKED
+    /// ([`Self::level_at`]), so a tilted channel's bottom follows its
+    /// surface down the slope: the depth of water inside a built piece -
+    /// its record's `depth`, or what its holder's floor gives
+    /// (`world_builder::compile::water::water_depth`). `None` for the sea,
+    /// the lakes and Berlin's bodies: water all the way down, as every plane
+    /// was before there were bottoms.
+    pub depth: Option<f32>,
 }
 
 impl WaterPlane {
@@ -243,10 +257,34 @@ impl WaterPlane {
     fn reaches(&self, x: f32, z: f32) -> bool {
         self.cells.as_ref().is_none_or(|cells| cells.reaches(x, z))
     }
+
+    /// The plane's surface height over world `(x, z)`: the plane equation
+    /// `(p - t) . n = 0` solved for `p.y`. For a yaw-only plane `n.y` is 1
+    /// and it is `t.y`; for a tilted one, the height at that very point.
+    /// Past a near-vertical tilt (`n.y` under [`YAW_ONLY_EPS`]) the plane is
+    /// no graph over XZ, and it falls back to `t.y`.
+    pub fn level_at(&self, x: f32, z: f32) -> f32 {
+        let normal = (self.world_from_local.rotation * Vec3::Y).normalize_or(Vec3::Y);
+        let t = self.world_from_local.translation;
+        if normal.y.abs() < YAW_ONLY_EPS {
+            t.y
+        } else {
+            t.y - ((x - t.x) * normal.x + (z - t.z) * normal.z) / normal.y
+        }
+    }
+
+    /// Whether world point `p` is no lower than the plane's bottom (#1949):
+    /// [`Self::depth`] under its surface straight over `p`
+    /// ([`Self::level_at`]). Always, for a plane with no depth.
+    fn above_bottom(&self, p: Vec3) -> bool {
+        self.depth
+            .is_none_or(|depth| p.y >= self.level_at(p.x, p.z) - depth)
+    }
 }
 
 /// The water a scatter's samples are judged against (#1727). The planes
-/// that are water across their rectangles - the sea, a built piece's pool -
+/// that are water across their rectangles - the sea, a built piece's pool,
+/// where the ground at the centre is no lower than its bottom (#1949) -
 /// give one level, the highest over the scatter's centre, which every sample
 /// reads wherever it falls, as every sample read before there were lakes:
 /// a sample past the sea's rectangle, at the world's edge, is judged against
@@ -312,25 +350,51 @@ impl WaterSurfaces {
     /// queried XZ*, computed by solving the plane equation. Yaw-only
     /// rotation collapses to a constant Y.
     ///
+    /// A plane with a depth (#1949) answers only a point no lower than its
+    /// bottom - [`WaterPlane::depth`] under its surface over the point's XZ
+    /// ([`WaterPlane::level_at`]), so a tilted channel holds water all down
+    /// its slope: `world_p`'s height is the body's own - its feet, its eye,
+    /// the ground it is asked for - and a body on the floor under a raised
+    /// pool is in none of it, while one standing in the pool is. A plane
+    /// with no depth - the sea, a lake - answers at every height, as every
+    /// plane did before (the highest such plane, whatever `world_p.y` is).
+    ///
     /// Used by the humanoid water-state classifier (column-vs-surface
     /// comparison), and by whatever swims or floats: it answers where the
     /// water is drawn. The scatter's filters read [`Self::for_scatter`].
-    pub fn surface_at(&self, world_xz: Vec2) -> Option<(usize, f32)> {
-        self.highest_where(world_xz, WaterPlane::holds)
+    pub fn surface_at(&self, world_p: Vec3) -> Option<(usize, f32)> {
+        self.highest_where(world_p.xz(), |plane, x, z| {
+            plane.holds(x, z) && plane.above_bottom(world_p)
+        })
     }
 
     /// [`Self::surface_at`] up a body's bank too (#1727): the level a place
-    /// stands over, the lake's where its reach takes the place in.
+    /// stands over, the lake's where its reach takes the place in. Asked of
+    /// a place with no height, it ignores every plane's
+    /// [`WaterPlane::depth`] and reads its level however far under it the
+    /// place lies. Its one reader in the game is [`ScatterWater`], which asks
+    /// it of the bodies alone (planes with cells, which never carry a
+    /// depth), so there it loses nothing. `impl WaterAt for WaterSurfaces`
+    /// (`bodies.rs`) reads it too and so ignores depths as well; nothing in
+    /// the game calls that impl (#1949).
     pub fn level_near(&self, world_xz: Vec2) -> Option<(usize, f32)> {
         self.highest_where(world_xz, WaterPlane::reaches)
     }
 
     /// The water a scatter centred at `centre` judges its samples against
     /// ([`ScatterWater`]): read at unit start, as the registry stands then.
-    pub fn for_scatter(&self, centre: Vec2) -> ScatterWater {
+    /// `ground` is the ground's height at the centre, where it is known: a
+    /// built piece's pool over it counts only where that ground is no lower
+    /// than the pool's bottom (#1949) - a scatter on the floor under a
+    /// raised pool is not under its water. Unknown, it counts.
+    pub fn for_scatter(&self, centre: Vec2, ground: Option<f32>) -> ScatterWater {
         ScatterWater {
             centre: self
-                .highest_where(centre, |plane, _, _| plane.cells.is_none())
+                .highest_where(centre, |plane, _, _| {
+                    plane.cells.is_none()
+                        && ground
+                            .is_none_or(|y| plane.above_bottom(Vec3::new(centre.x, y, centre.y)))
+                })
                 .map(|(_, y)| y),
             bodies: WaterSurfaces {
                 planes: self
@@ -352,21 +416,7 @@ impl WaterSurfaces {
     ) -> Option<(usize, f32)> {
         let mut best: Option<(usize, f32)> = None;
         for (i, plane) in self.planes.iter().enumerate() {
-            let normal = (plane.world_from_local.rotation * Vec3::Y).normalize_or(Vec3::Y);
-            let t = plane.world_from_local.translation;
-            // Solve plane equation `(p - t) · n = 0` for `p.y`. For
-            // yaw-only surfaces normal.y ≈ 1 and the formula collapses to
-            // `t.y`; for tilted surfaces it produces the correct Y at the
-            // queried XZ. The `normal.y` denominator is guarded by the
-            // YAW_ONLY_EPS check below - past 90° tilt the plane is
-            // ill-defined as a Y-graph and we fall back to translation.y.
-            let surface_y = if normal.y.abs() < YAW_ONLY_EPS {
-                t.y
-            } else {
-                let dx = world_xz.x - t.x;
-                let dz = world_xz.y - t.z;
-                t.y - (dx * normal.x + dz * normal.z) / normal.y
-            };
+            let surface_y = plane.level_at(world_xz.x, world_xz.y);
             let world_p = Vec3::new(world_xz.x, surface_y, world_xz.y);
             let local = plane
                 .world_from_local
@@ -397,6 +447,10 @@ impl WaterSurfaces {
     /// 2. Computes signed distance along the plane normal - points above
     ///    the surface (`depth <= 0`) are skipped.
     /// 3. Among submerged surfaces, picks the one with the smallest depth.
+    ///
+    /// A point under a plane's bottom (#1949) is not in that plane at all:
+    /// its depth measured straight down from the surface over the point, as
+    /// [`Self::surface_at`] measures it, not along the normal.
     pub fn query(&self, world_p: Vec3) -> Option<WaterQuery> {
         let mut best: Option<WaterQuery> = None;
         for (i, plane) in self.planes.iter().enumerate() {
@@ -438,8 +492,9 @@ impl WaterSurfaces {
 
     /// Shared XZ-bounds + signed-distance computation used by both
     /// [`Self::query`] and [`Self::query_signed`]. Returns `None` when
-    /// the point's projection falls outside the plane's local rectangle;
-    /// the caller decides whether to honour the sign of `depth`.
+    /// the point's projection falls outside the plane's local rectangle, or
+    /// the point is under the plane's bottom (#1949); the caller decides
+    /// whether to honour the sign of `depth`.
     fn signed_query_against(
         &self,
         plane: &WaterPlane,
@@ -454,6 +509,7 @@ impl WaterSurfaces {
         if local.x.abs() > plane.local_half_extents.x
             || local.z.abs() > plane.local_half_extents.y
             || !plane.holds(world_p.x, world_p.z)
+            || !plane.above_bottom(world_p)
         {
             return None;
         }
@@ -570,6 +626,7 @@ mod tests {
             flow_strength: 0.0,
             owner: WaterPlane::NO_OWNER,
             cells: None,
+            depth: None,
         }
     }
 
@@ -597,11 +654,12 @@ mod tests {
             flow_strength: 0.0,
             owner: WaterPlane::NO_OWNER,
             cells: Some(lake.cells.clone()),
+            depth: None,
         };
         let surfaces = WaterSurfaces {
             planes: vec![flat_plane(2.0, Vec2::splat(30.0)), lake_plane],
         };
-        let water = surfaces.for_scatter(Vec2::ZERO);
+        let water = surfaces.for_scatter(Vec2::ZERO, None);
         assert_eq!(water.water_at(0.0, 0.0), Some(2.0));
         assert_eq!(
             water.water_at(500.0, 0.0),
@@ -610,7 +668,7 @@ mod tests {
         );
         assert_eq!(water.water_at(20.0, 0.0), Some(6.0), "in the lake");
         assert_eq!(water.water_at(-20.0, 0.0), Some(2.0), "beside it");
-        let off = surfaces.for_scatter(Vec2::new(500.0, 0.0));
+        let off = surfaces.for_scatter(Vec2::new(500.0, 0.0), None);
         assert_eq!(
             off.water_at(500.0, 0.0),
             None,
@@ -623,12 +681,115 @@ mod tests {
         );
     }
 
+    /// #1949: a raised pool - level 54.42 over a 13 x 23 m rectangle, 1.5 m
+    /// deep, its bottom at 52.92 - over a sea at 0.3: a body on the floor
+    /// 54 m under the pool is in the sea's column and not the pool's, one
+    /// standing in the pool is in the pool, and the 3D queries agree.
+    #[test]
+    fn a_pool_with_a_bottom_is_no_water_under_it() {
+        let mut pool = flat_plane(54.42, Vec2::new(6.5, 11.5));
+        pool.world_from_local.translation.z = 74.0;
+        pool.depth = Some(1.5);
+        let surfaces = WaterSurfaces {
+            planes: vec![flat_plane(0.3, Vec2::splat(500.0)), pool],
+        };
+        let at = |y: f32| surfaces.surface_at(Vec3::new(0.0, y, 75.6));
+        assert_eq!(at(0.4), Some((0, 0.3)), "the avenue under it: the sea's");
+        assert_eq!(at(-3.0), Some((0, 0.3)), "under the sea, still the sea's");
+        assert_eq!(at(52.9), Some((0, 0.3)), "just under its bottom");
+        assert_eq!(at(52.93), Some((1, 54.42)), "on its bottom");
+        assert_eq!(at(53.5), Some((1, 54.42)), "standing in it");
+        assert_eq!(at(300.0), Some((1, 54.42)), "high over it");
+        assert!(surfaces.query(Vec3::new(0.0, 0.4, 75.6)).is_none());
+        let under_sea = surfaces
+            .query(Vec3::new(0.0, -1.0, 75.6))
+            .expect("in the sea");
+        assert_eq!(under_sea.surface_idx, 0);
+        let in_pool = surfaces.query(Vec3::new(0.0, 53.5, 75.6)).expect("in it");
+        assert_eq!(in_pool.surface_idx, 1);
+        assert!((in_pool.depth - 0.92).abs() < 1e-4);
+        assert_eq!(
+            surfaces
+                .query_signed(Vec3::new(0.0, 20.0, 75.6))
+                .map(|q| q.surface_idx),
+            Some(0),
+            "the hull over the sea, under the pool, rides the sea"
+        );
+    }
+
+    /// #1949: the sea and a lake have no bottom and answer as they always
+    /// did at every height a body can be.
+    #[test]
+    fn bottomless_water_answers_at_every_height() {
+        let surfaces = WaterSurfaces {
+            planes: vec![
+                flat_plane(0.0, Vec2::splat(100.0)),
+                flat_plane(7.5, Vec2::splat(5.0)),
+            ],
+        };
+        for y in [-1.0e4, -20.0, 0.0, 3.0, 7.5, 40.0, 1.0e4] {
+            assert_eq!(surfaces.surface_at(Vec3::new(2.0, y, 2.0)), Some((1, 7.5)));
+            assert_eq!(
+                surfaces.surface_at(Vec3::new(50.0, y, 50.0)),
+                Some((0, 0.0))
+            );
+        }
+    }
+
+    /// #1949: a scatter centred on ground under a raised pool's bottom reads
+    /// the sea under it; one on ground in the pool, or with no ground to
+    /// read, reads the pool.
+    #[test]
+    fn a_scatter_under_a_raised_pool_reads_the_sea() {
+        use bodies::WaterAt;
+        let mut pool = flat_plane(20.0, Vec2::splat(10.0));
+        pool.depth = Some(2.0);
+        let surfaces = WaterSurfaces {
+            planes: vec![flat_plane(1.0, Vec2::splat(100.0)), pool],
+        };
+        let at = |ground| surfaces.for_scatter(Vec2::ZERO, ground).water_at(0.0, 0.0);
+        assert_eq!(at(Some(4.0)), Some(1.0), "the floor under it");
+        assert_eq!(at(Some(18.5)), Some(20.0), "its own floor");
+        assert_eq!(at(None), Some(20.0), "no ground to read");
+    }
+
+    /// #1949: a channel's bottom follows its surface down its slope. A 50 m
+    /// channel tilted 5 degrees, 0.5 m deep: at its low end, 2.1 m under
+    /// its centre's level, a point 0.3 m under its surface there is in it -
+    /// to the column query, the 3D one and the signed one alike - and a
+    /// point 0.7 m under is in none of them. A bottom level with the
+    /// centre's surface left the low end's water all under it.
+    #[test]
+    fn a_tilted_channels_bottom_follows_its_surface() {
+        let mut channel = tilted_plane(10.0, 5f32.to_radians(), Vec2::new(4.0, 25.0), 3.0);
+        channel.depth = Some(0.5);
+        let surfaces = WaterSurfaces {
+            planes: vec![channel],
+        };
+        let (x, z) = (0.0, 24.0);
+        let level = surfaces.planes[0].level_at(x, z);
+        assert!(level < 10.0 - 2.0, "the low end: {level}");
+        let in_it = Vec3::new(x, level - 0.3, z);
+        assert_eq!(surfaces.surface_at(in_it).map(|(i, _)| i), Some(0));
+        let q = surfaces.query(in_it).expect("in it");
+        assert!(q.flow_dir.length() > 0.9, "and it flows there");
+        assert!(surfaces.query_signed(in_it).is_some());
+        let under = Vec3::new(x, level - 0.7, z);
+        assert_eq!(surfaces.surface_at(under), None);
+        assert!(surfaces.query(under).is_none());
+        assert!(surfaces.query_signed(under).is_none());
+        // The high end the same.
+        let high = surfaces.planes[0].level_at(x, -z);
+        assert!(surfaces.surface_at(Vec3::new(x, high - 0.3, -z)).is_some());
+        assert!(surfaces.surface_at(Vec3::new(x, high - 0.7, -z)).is_none());
+    }
+
     #[test]
     fn surface_at_inside_returns_y() {
         let surfaces = WaterSurfaces {
             planes: vec![flat_plane(5.0, Vec2::splat(10.0))],
         };
-        let q = surfaces.surface_at(Vec2::new(3.0, -4.0)).unwrap();
+        let q = surfaces.surface_at(Vec3::new(3.0, 0.0, -4.0)).unwrap();
         assert_eq!(q.0, 0);
         assert!((q.1 - 5.0).abs() < 1e-5);
     }
@@ -638,8 +799,8 @@ mod tests {
         let surfaces = WaterSurfaces {
             planes: vec![flat_plane(0.0, Vec2::splat(10.0))],
         };
-        assert!(surfaces.surface_at(Vec2::new(11.0, 0.0)).is_none());
-        assert!(surfaces.surface_at(Vec2::new(0.0, -11.0)).is_none());
+        assert!(surfaces.surface_at(Vec3::new(11.0, 0.0, 0.0)).is_none());
+        assert!(surfaces.surface_at(Vec3::new(0.0, 0.0, -11.0)).is_none());
     }
 
     #[test]
@@ -651,11 +812,11 @@ mod tests {
             ],
         };
         // Inside both - should pick the elevated pond.
-        let q = surfaces.surface_at(Vec2::new(2.0, 2.0)).unwrap();
+        let q = surfaces.surface_at(Vec3::new(2.0, 0.0, 2.0)).unwrap();
         assert_eq!(q.0, 1);
         assert!((q.1 - 7.5).abs() < 1e-5);
         // Inside the sea but outside the pond - should pick the sea.
-        let q = surfaces.surface_at(Vec2::new(50.0, 50.0)).unwrap();
+        let q = surfaces.surface_at(Vec3::new(50.0, 0.0, 50.0)).unwrap();
         assert_eq!(q.0, 0);
         assert!((q.1 - 0.0).abs() < 1e-5);
     }
@@ -667,9 +828,9 @@ mod tests {
         p.world_from_local.translation.z = 100.0;
         let surfaces = WaterSurfaces { planes: vec![p] };
         // Centred at (100, 100) with extent 3 → only points near 100 hit.
-        assert!(surfaces.surface_at(Vec2::new(100.0, 100.0)).is_some());
-        assert!(surfaces.surface_at(Vec2::new(0.0, 0.0)).is_none());
-        assert!(surfaces.surface_at(Vec2::new(102.0, 99.0)).is_some());
+        assert!(surfaces.surface_at(Vec3::new(100.0, 0.0, 100.0)).is_some());
+        assert!(surfaces.surface_at(Vec3::new(0.0, 0.0, 0.0)).is_none());
+        assert!(surfaces.surface_at(Vec3::new(102.0, 0.0, 99.0)).is_some());
     }
 
     #[test]
@@ -682,12 +843,13 @@ mod tests {
             flow_strength: 0.0,
             owner: WaterPlane::NO_OWNER,
             cells: None,
+            depth: None,
         };
         let surfaces = WaterSurfaces {
             planes: vec![plane],
         };
-        assert!(surfaces.surface_at(Vec2::new(0.5, 0.5)).is_some());
-        assert!(surfaces.surface_at(Vec2::new(1.5, 0.0)).is_none());
+        assert!(surfaces.surface_at(Vec3::new(0.5, 0.0, 0.5)).is_some());
+        assert!(surfaces.surface_at(Vec3::new(1.5, 0.0, 0.0)).is_none());
     }
 
     #[test]
@@ -701,17 +863,18 @@ mod tests {
             flow_strength: 0.0,
             owner: WaterPlane::NO_OWNER,
             cells: None,
+            depth: None,
         };
         let surfaces = WaterSurfaces {
             planes: vec![plane],
         };
         // World point (0, 0, 7) - rotates back into local as roughly
         // (-7/√2, 0, 7/√2) ≈ (-4.95, 0, 4.95): x in [-5, 5] ✓, z in [-10, 10] ✓.
-        assert!(surfaces.surface_at(Vec2::new(0.0, 7.0)).is_some());
+        assert!(surfaces.surface_at(Vec3::new(0.0, 0.0, 7.0)).is_some());
         // World point (7, 0, 0) - rotates back to (4.95, 0, -4.95): inside.
-        assert!(surfaces.surface_at(Vec2::new(7.0, 0.0)).is_some());
+        assert!(surfaces.surface_at(Vec3::new(7.0, 0.0, 0.0)).is_some());
         // World point (8, 0, 0) - rotates back to (~5.66, 0, -5.66): x exceeds 5.
-        assert!(surfaces.surface_at(Vec2::new(8.0, 0.0)).is_none());
+        assert!(surfaces.surface_at(Vec3::new(8.0, 0.0, 0.0)).is_none());
     }
 
     fn tilted_plane(y: f32, tilt_radians: f32, half: Vec2, flow: f32) -> WaterPlane {
@@ -722,6 +885,7 @@ mod tests {
             flow_strength: flow,
             owner: WaterPlane::NO_OWNER,
             cells: None,
+            depth: None,
         }
     }
 
@@ -734,8 +898,8 @@ mod tests {
         let surfaces = WaterSurfaces {
             planes: vec![plane],
         };
-        let (_, y_at_pos_z) = surfaces.surface_at(Vec2::new(0.0, 1.0)).unwrap();
-        let (_, y_at_neg_z) = surfaces.surface_at(Vec2::new(0.0, -1.0)).unwrap();
+        let (_, y_at_pos_z) = surfaces.surface_at(Vec3::new(0.0, 0.0, 1.0)).unwrap();
+        let (_, y_at_neg_z) = surfaces.surface_at(Vec3::new(0.0, 0.0, -1.0)).unwrap();
         // The +Z side dips below origin; the -Z side rises above. The two
         // values must be exactly opposite (flat origin, symmetric tilt).
         assert!((y_at_pos_z + y_at_neg_z).abs() < 1e-4);
@@ -817,6 +981,7 @@ mod tests {
             flow_strength: 5.0,
             owner: WaterPlane::NO_OWNER,
             cells: None,
+            depth: None,
         };
         let surfaces = WaterSurfaces {
             planes: vec![plane],
@@ -865,6 +1030,7 @@ mod tests {
                     flow_strength: 0.0,
                     owner: WaterPlane::NO_OWNER,
                     cells: None,
+                    depth: None,
                 },
             ],
         };
@@ -887,6 +1053,7 @@ mod tests {
                     flow_strength: 0.0,
                     owner: WaterPlane::NO_OWNER,
                     cells: None,
+                    depth: None,
                 },
             ],
         };

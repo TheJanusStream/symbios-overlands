@@ -78,10 +78,12 @@
 //! (the spinners' [`SpinClock`] - UTC in the game) and the light's own seed,
 //! drawn from its place in the record ([`light_seed`]), so every peer sees
 //! one light do the same thing. The sanitiser holds one that dips deep
-//! enough to flash to two flashes a second at every setting, as lightning
-//! is held (`sanitize::light::max_flicker_rate_hz`). The viewer's Effects
-//! setting calms it further at the drawing ([`calmed`]): at Reduced half as
-//! deep, with no fine shimmer and at most once a second; steady at Off.
+//! enough to flash to three flashes a second at every setting, WCAG 2.3.1's
+//! limit (`sanitize::light::max_flicker_rate_hz`); a flicker's shimmer too
+//! shallow to flash may move on a rate of its own, up to the ceiling, over a
+//! waver held to that (#1950). The viewer's Effects setting calms it
+//! further at the drawing ([`calmed`]): at Reduced half as deep, with no
+//! fine shimmer and at most once a second; steady at Off.
 
 pub mod budget;
 pub mod clusters;
@@ -154,10 +156,14 @@ pub struct NodeLight {
 pub enum Flicker {
     /// `fine`: with the quicker shimmer over the broad waver (see
     /// [`LightFlicker::Flicker`]); the Effects setting's Reduced drops it.
+    /// `shimmer_rate`: the shimmer's own rate (Hz), where the record gives
+    /// it one; `None` moves it [`FLICKER_FINE_RATE`] times quicker than the
+    /// waver, as before #1950.
     Flicker {
         amount: f32,
         rate: f32,
         fine: bool,
+        shimmer_rate: Option<f32>,
     },
     Pulse {
         amount: f32,
@@ -169,10 +175,15 @@ impl Flicker {
     /// The record's flicker, or `None` for an unknown mode (drawn steady).
     pub fn of(flicker: &LightFlicker) -> Option<Self> {
         match *flicker {
-            LightFlicker::Flicker { amount, rate } => Some(Self::Flicker {
+            LightFlicker::Flicker {
+                amount,
+                rate,
+                shimmer_rate,
+            } => Some(Self::Flicker {
                 amount: amount.0,
                 rate: rate.0,
                 fine: true,
+                shimmer_rate: shimmer_rate.map(|s| s.0),
             }),
             LightFlicker::Pulse { amount, rate } => Some(Self::Pulse {
                 amount: amount.0,
@@ -419,6 +430,7 @@ pub fn calmed(flicker: Flicker, effects: EffectsIntensity) -> Option<Flicker> {
                 amount: depth(amount),
                 rate: pace(rate),
                 fine: false,
+                shimmer_rate: None,
             })
         }
         (EffectsIntensity::Reduced, Flicker::Pulse { amount, rate }) => Some(Flicker::Pulse {
@@ -432,8 +444,10 @@ pub fn calmed(flicker: Flicker, effects: EffectsIntensity) -> Option<Flicker> {
 /// The share of its power a light with `flicker` and `seed` gives at the
 /// shared clock's `now` (s): 1 less up to the flicker's amount. A pulse
 /// breathes on a cosine; a flicker wavers along a smooth random walk, with
-/// a quicker one over it for its fine shimmer. Worked in `f64` where the
-/// clock is: at UTC's 1.8e9 s an `f32` cannot tell two minutes apart.
+/// a quicker one over it for its fine shimmer - on its own rate where it
+/// has one, else [`FLICKER_FINE_RATE`] times the waver's. Worked in `f64`
+/// where the clock is: at UTC's 1.8e9 s an `f32` cannot tell two minutes
+/// apart.
 pub fn flicker_share(flicker: Flicker, seed: u64, now: f64) -> f32 {
     let phase = (seed >> 11) as f64 / (1u64 << 53) as f64;
     let dip = match flicker {
@@ -441,11 +455,23 @@ pub fn flicker_share(flicker: Flicker, seed: u64, now: f64) -> f32 {
             let turn = (now * f64::from(rate) + phase).rem_euclid(1.0);
             amount * (0.5 - 0.5 * (std::f64::consts::TAU * turn).cos() as f32)
         }
-        Flicker::Flicker { amount, rate, fine } => {
+        Flicker::Flicker {
+            amount,
+            rate,
+            fine,
+            shimmer_rate,
+        } => {
             let at = now * f64::from(rate) + phase * 1000.0;
             let broad = value_noise(seed, at);
             if fine {
-                let quick = at * f64::from(FLICKER_FINE_RATE) + 0.5;
+                // Coupled, exactly as before #1950: a record without an own
+                // shimmer rate draws the same light.
+                let quick = match shimmer_rate {
+                    Some(own) => {
+                        now * f64::from(own) + phase * 1000.0 * f64::from(FLICKER_FINE_RATE) + 0.5
+                    }
+                    None => at * f64::from(FLICKER_FINE_RATE) + 0.5,
+                };
                 let shimmer = value_noise(seed ^ 0x5DEE_CE66, quick);
                 amount * ((1.0 - FLICKER_FINE_SHARE) * broad + FLICKER_FINE_SHARE * shimmer)
             } else {

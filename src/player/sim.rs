@@ -781,6 +781,7 @@ pub(crate) fn run_at_frame_rate(
                 flow_strength: 0.0,
                 owner: crate::water::WaterPlane::NO_OWNER,
                 cells: None,
+                depth: None,
             })
             .into_iter()
             .collect(),

@@ -175,14 +175,15 @@ const FLOOD_CONE_DEG: [f32; 2] = [20.0, 35.0];
 /// flame is (`sanitize::light::max_flicker_rate_hz`).
 const FLAME_FLICKER: (f32, f32) = (0.15, 3.0);
 
-/// A fire's waver: deeper, so held to two flashes a second.
+/// A fire's waver: deeper, so held to the sanitiser's three flashes a
+/// second (and under its two of before #1950).
 const FIRE_FLICKER: (f32, f32) = (0.25, 1.5);
 
 /// A beacon's breath: slow, and shallow - a beacon's glass glows steady
 /// (a material does not pulse), so a deep breath in its pool would read as
 /// a light at odds with its lamp; a third reads as the glass breathing
 /// gently. Still a flash by the sanitiser's measure (deeper than a tenth),
-/// and well under its two a second.
+/// and well under its three a second.
 const BEACON_PULSE: (f32, f32) = (0.3, 0.5);
 
 /// A fire's light is broader than a bulb's.
@@ -195,7 +196,7 @@ const FIRE_SIZE_M: f32 = 0.25;
 const HEADLIGHT_CONE_DEG: [f32; 2] = crate::pds::light::DEFAULT_SPOT_CONE_DEG;
 
 /// An anti-collision light's pulse: deep, as a beacon's flash is, at the
-/// once a second of a real one - under the two flashes a second the
+/// once a second of a real one - under the three flashes a second the
 /// sanitiser holds any light to.
 const STROBE_PULSE: (f32, f32) = (0.8, 1.0);
 
@@ -291,6 +292,7 @@ impl Lamp {
         let flicker = |(amount, rate): (f32, f32)| LightFlicker::Flicker {
             amount: Fp(amount),
             rate: Fp(rate),
+            shimmer_rate: None,
         };
         let mut light = LightSource {
             color: Fp3(color),

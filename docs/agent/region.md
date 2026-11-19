@@ -174,23 +174,26 @@ at or over its y draws nothing, nor one whose ground falls away past its
 rectangle from its very point, nor one whose brim lies at or under the sea,
 and the World Editor says which under the water child, and the brim a lake
 stands at. Water inside a built piece (a
-Water child of a box) keeps its rectangle: its walls hold it. **But until
-issue #1949 is fixed the engine answers its physics - swimming, buoyancy,
-the agent's height - at the water node's LOCAL transform**, its place relative
-to its parent, while drawing it where the chain puts it: Strata's cistern
-water, 0.885 m over its basin's lining, was also an invisible 55 x 69 m
-pool round the world's origin, and the owner swam on the Sump's dry floor
-there (live session 27). And a water plane has no bottom: everything under
-its surface inside its rectangle is water, however deep - registered at
-their true places, the Crown's reflecting pools flooded the levels 54 m
-below them, and the owner swam on the Sump's avenue. Until the engine has
-both fixes: a pool with only ground under it hangs directly under an
-identity root in a generator placed at identity, its world transform as
-its own (it registers truly); a pool over a floor is wrapped - a hidden
-1 cm cube carrying its place, the water its child with its scale and a
-small lift - so it registers only at the origin at that lift, under every
-floor there, and is water to no one (`exports/atrium/b/water.py`,
-`b/water2.py`).
+Water child of a box) keeps its rectangle: its walls hold it. Its physics -
+swimming, buoyancy, the agent's height - is answered where it is drawn, in
+the world's frame: its placement's pose times every ancestor's times its
+own (#1949). And it has a bottom, under which nothing is in it, so a pool on
+a roof is no water to the hall below and a raised pool floods no floor
+under it. Its depth is measured straight down from its surface at each
+point, so a tilted channel holds water all down its slope. Set the water's
+`depth` (metres under its surface, 0.1 to 1000; the World Editor's Depth
+section under the water child) and that is its depth - in world metres,
+which a scaled copy of the piece does not scale. Unset (left off the
+record), it reaches down to the floor of the piece that holds it - the
+bottom of its parent node's box, which does scale with the piece - but
+never more than 2.5 m; and 2.5 m where the parent has no box to read (a
+Shape, an L-system, a group) or its box does not reach under the water.
+2.5 m keeps a floating swimmer's feet in and a body in the storey under a
+raised pool out. So parent the water to the slab under it - its basin's
+floor - or set `depth`, which a pool deeper than 2.5 m needs. The world's
+own water layers - the sea and its lakes - have the ground for a bottom
+and ignore `depth`. A scatter's water line, read once at its centre,
+counts a pool only where the ground there is no lower than its bottom.
 
 **A seeded world's land may be the wrong kind entirely.** Reeve's (session
 879) was a 69 m rough `DiamondSquare` mountain; an English lowland manor
@@ -1199,14 +1202,27 @@ A forest is a few generators and a scatter placement each:
   "rate": hz}` (an uneven waver with a quicker shimmer over it: 0.12 and 4
   by default) or `network.symbios.light.pulse` (an even breath: 0.6 and
   0.5); `amount` is the share it dips by, `rate` 0.05 to 8 a second, and
-  every peer sees it alike. A light that dips by more than a tenth flashes,
-  and flashes at most twice a second, as lightning does: a pulse deeper
-  than 0.1 at most 2 a second, a flicker deeper than 0.15 at most 2 and one
-  deeper than 0.3 (its shimmer flashes too) at most 0.74 - a faster rate is
-  saved slowed to that. A flicker of exactly 0.3 counts as deeper (its
-  shimmer, a third of it, comes out a hair over 0.1): Strata's fire drums
-  at 0.30 and 2 Hz were slowed to 0.74; 0.29 at 2 Hz is the strongest
-  flicker a light may have (live session 27). A viewer's Effects setting calms it further:
+  every peer sees it alike. A flicker is a broad waver (two thirds of
+  `amount`) at `rate` with a shimmer (a third of it) over it, 2.7 times
+  quicker - or at its own `"shimmer_rate": hz` (0.05 to 8, #1950), left
+  off for the coupled 2.7 times. A light that dips by more than a tenth
+  flashes, and flashes at most three times a second (WCAG 2.3.1's limit,
+  the owner's decision of #1950; lightning keeps its own two): a pulse
+  deeper than 0.1 at most 3 a second, a flicker deeper than 0.15 (its
+  waver flashes) at most 3 and one deeper than 0.3 (its shimmer flashes
+  too) at most 1.1111, its shimmer coupled - a faster rate is saved slowed
+  to that, and a `shimmer_rate` on a flicker deeper than 0.3 is dropped.
+  Each part counts on its own clock, where its share of the dip passes a
+  tenth. Exactly 0.3 is not deeper (its shimmer is exactly a tenth): the
+  strongest fire is now `"amount": 3000, "rate": 30000, "shimmer_rate":
+  80000` - a waver of 0.2 at 3 a second under a shimmer of 0.1 at 8 (until
+  #1950, 0.29 at 2, its shimmer 0.097 at 5.4; Strata's fire drums, live
+  session 27); a slow swell under a quick flutter (`"rate": 6000`,
+  `"shimmer_rate": 75000`) reads as a fire too. The deepest a flicker
+  may go is 1.0 at 1.1111 a second, its shimmer at 3. A client built
+  before #1950 ignores `shimmer_rate` (it draws the shimmer coupled),
+  slows any rate to its own two a second, and drops the key if it saves
+  the node. A viewer's Effects setting calms it further:
   Reduced halves the dip and moves it at most once a second, Off holds it
   steady. Like every number, each is scaled by 10 000 on the wire. A lamp
   on a turning node turns with it: a spot on a spinning hub is a

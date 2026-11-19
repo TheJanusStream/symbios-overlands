@@ -319,6 +319,12 @@ pub const MAX_WATER_WAKE_RIPPLE_WAVELENGTH: f32 = 10.0;
 /// and is the practical upper bound before the effect loses spatial
 /// locality.
 pub const MAX_WATER_WAKE_DECAY_RADIUS: f32 = 50.0;
+/// The range a Water surface's `depth` is held to (m, #1949). The floor
+/// keeps a bottom from sitting on its own level, where no body could be in
+/// the water at all; the ceiling is far past any pool or tank a world
+/// builds - the bottom only has to stop the water reaching floors below.
+pub const MIN_WATER_DEPTH: f32 = 0.1;
+pub const MAX_WATER_DEPTH: f32 = 1000.0;
 /// Maximum URL length (bytes) for a [`crate::pds::SignSource::Url`]
 /// payload. 2048 matches the de-facto browser cap and keeps a hostile
 /// record from smuggling megabytes of inert string through the room
@@ -577,17 +583,25 @@ pub const MIN_SPOT_ANGLE_DEG: f32 = 1.0;
 /// seconds.
 pub const MIN_LIGHT_FLICKER_RATE_HZ: f32 = 0.05;
 /// Fastest a flicker or pulse may move (times a second): a shallow one,
-/// one that never dips past [`LIGHT_FLASH_DEPTH`]. A deeper one is held to
-/// [`MAX_LIGHT_FLASHES_HZ`].
+/// one that never dips past [`LIGHT_FLASH_DEPTH`] - and a flicker's fine
+/// shimmer on its own rate, which only a shimmer that shallow may have,
+/// beside a broad waver held to [`MAX_LIGHT_FLASHES_HZ`] (#1950). A deeper
+/// one is held to [`MAX_LIGHT_FLASHES_HZ`].
 pub const MAX_LIGHT_FLICKER_RATE_HZ: f32 = 8.0;
 /// A light's dip deeper than this share of its power counts as a flash:
-/// WCAG's general flash threshold, a change of a tenth of the light.
+/// WCAG's general flash threshold, a change of a tenth of the light. Judged
+/// with a stated epsilon (`sanitize::light`), so a part dipping by exactly
+/// a tenth on the wire's grid does not flash for a float's last bit.
 pub const LIGHT_FLASH_DEPTH: f32 = 0.1;
 /// The most flashes a light may make in a second, at every Effects setting
-/// and so at the Full every visitor starts at: two, as lightning holds
-/// itself to (`weather::lightning`), under the three a second at which
-/// flashing light can set off a seizure. A pulse flashes once a period; a
-/// flicker's broad waver once a period of its rate and its fine shimmer
-/// (`pds::light::FLICKER_FINE_RATE` times quicker) once of its own, each
-/// counted only where its share of the dip passes [`LIGHT_FLASH_DEPTH`].
-pub const MAX_LIGHT_FLASHES_HZ: f32 = 2.0;
+/// and so at the Full every visitor starts at: three, WCAG 2.3.1's limit -
+/// nothing that "flashes more than three times in any one second period" -
+/// by the owner's decision of #1950 (two until then, as lightning holds
+/// itself to, which it still does: `weather::lightning` does not read
+/// this). A pulse flashes once a period; a flicker's broad waver once a
+/// period of its rate and its fine shimmer once of its own (coupled,
+/// `pds::light::FLICKER_FINE_RATE` times quicker, or on a rate of its own),
+/// each counted only where its share of the dip passes
+/// [`LIGHT_FLASH_DEPTH`]. A shimmer that flashes moves coupled, so the two
+/// parts are never both at three a second.
+pub const MAX_LIGHT_FLASHES_HZ: f32 = 3.0;
