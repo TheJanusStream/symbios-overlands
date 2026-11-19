@@ -46,6 +46,11 @@ append, so a source pulled before the save still composes. A daemon older
 than #1470 does not say where; `apply` then prints a WARNING and leaves the
 line alone.
 
+`A remove N` takes placement N out and moves every later one down by one:
+rewrite the `/placements/M` lines (M over N) of every EDITS file you keep,
+or a re-run sets the wrong placement (live 28 moved Strata's four moving
+pieces from 280-283 to 279-282).
+
 `test_tools.py` tests them offline - no agent, daemon or render tool:
 `python3 -m unittest discover -s docs/agent/tools -p 'test_*.py'`. No gate
 runs it: run it after changing a tool. Its `thread.py` tests mesh what the

@@ -66,6 +66,12 @@ folder, `exports/<name>/` (the page's "Working folder" row).
      BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/agent --account
      <handle> "$@"`. `accounts` and an offline `start` refuse `--account`:
      run those with the binary itself.
+   - Build the client from the code the world runs: after the owner deploys
+     a change to the record (a new field), `cargo build --profile
+     test-release --bin agent` before the first edit. The daemon holds the
+     record in its own build's types, so an older client takes a new field
+     in, keeps nothing of it and saves the record without it (live 28,
+     #1950's `shimmer_rate`); the gate builds no binaries.
    - Start every tool call with `AGENT_ACCOUNT=<handle>`: the scripts in
      [tools/](tools/README.md) add it to each agent command they run, and
      with more than one session saved here, a command without its account
