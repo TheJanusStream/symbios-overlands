@@ -331,6 +331,11 @@ every dimension.
   through night, its lights the show. Also (10:37): the column fields may
   stay instance sets while the manifest has room; four grids a level round
   the well are the owner's suggested saving if it runs short.
+- 2026-11-19 (terminal, after live 28, #1952): "All three things you
+  listed, to look for, look good to me" - the pools as the engine now
+  answers them (#1949: wading in, dry under), the fire drums' flicker at
+  depth 0.30, 3 Hz, a shimmer of its own at 8 Hz (#1950), and the lift
+  towers' density: all kept as they stand, no thinning.
 
 ## Working material
 
@@ -429,29 +434,18 @@ scratchpad (briefs, renders, the seed scans).
   `strata_water`'s placement removed; walked dry under the Crown's south
   axis pool and at the well's foot (height 0 at both, where the owner had
   swum). The fire drums' lights at the new strongest fire flicker: depth
-  0.30 at 3 Hz with a shimmer of its own at 8 Hz. Saved 15:06.
+  0.30 at 3 Hz with a shimmer of its own at 8 Hz. Saved 15:06. Afterwards
+  the owner looked for themselves: the pools, the drums' flicker and the
+  lift towers' density "look good" (a standing decision, #1952).
 
 ## Open threads
 
-- The pools since #1949 (live 28): nobody has waded one yet - every basin's
-  rim is over a person's step (the cistern's walls stand 1.2 m), so the walk
-  proved only the dry floors. The engine's tests prove a nested pool
-  registers at its place with its holder's floor for a bottom; let the
-  owner try one when they visit. The drums' new flicker has not been seen
-  by the owner either: if it still reads weak, the next step is deeper and
-  slower (over 0.3 the shimmer flashes, so the waver is held to 1.11 Hz and
-  the shimmer to 3) or a brighter light (the avenue drums' 24 may rise to
-  32 at their 6 m reach).
 - The owner judged the drone and the coat in motion (live 27: "Work on your
   avatar is complete for now"). Known and left: at a run past 30 degrees of
   thigh pitch a half-skirt's top leaves the yoke at the back (up to 6 cm),
   and the vent shows a hairline of light from the front.
 - Triangles: the Terraces' soft-blob tree crowns and greens (about 60k) are
   the first to lighten if the web strains.
-- The lift towers (live 27) are dense lattices that change the open atrium's
-  look (`1035/motion/views_well_day.png`): the owner has not judged them -
-  thin them (fewer diagonals, a lighter frame) or remove them on their word
-  (`b/motion.edits`: placements 279-282).
 - The budget's last fifth: about 115 KB of the live ceiling and 20 KB of
   the manifest (some 90 placements) are left after phase 2, and the
   placements draw about 397,000 triangles over the ground's 522,000 -
